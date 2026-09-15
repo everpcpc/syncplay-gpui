@@ -174,6 +174,20 @@ impl MpvCommand {
         }
     }
 
+    /// Create a sub-add command for an external subtitle file.
+    /// `flags` is one of mpv's sub-add flags, e.g. "select" or "auto".
+    pub fn sub_add(path: &str, flags: &str) -> Self {
+        Self {
+            command: vec![
+                Value::String("sub-add".to_string()),
+                Value::String(path.to_string()),
+                Value::String(flags.to_string()),
+            ],
+            request_id: None,
+            load_id: None,
+        }
+    }
+
     /// Create a seek command
     pub fn seek(position: f64, mode: &str, request_id: u64) -> Self {
         Self {
