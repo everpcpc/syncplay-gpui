@@ -13,7 +13,9 @@ use tracing::{debug, warn};
 use super::backend::{next_player_instance_id, PlayerBackend, PlayerKind};
 use super::commands::{LoadfileOptionsSyntax, MpvCommand};
 use super::events::{EndFileReason, MpvPlayerEvent};
-use super::media_update::{MediaCommit, MediaField, MediaUpdateState, MediaUpdateTransaction};
+use super::media_update::{
+    MediaCommit, MediaField, MediaSnapshot, MediaUpdateState, MediaUpdateTransaction,
+};
 use super::mpv_ipc::MpvIpc;
 use super::properties::PlayerState;
 use crate::app_state::AppState;
@@ -657,6 +659,75 @@ async fn handle_syncplayintf_line(
     }
 }
 
+/// IINA disables mpv's built-in subtitle auto loading (`sub-auto=no`) and its
+/// own smart matcher only runs for files opened through IINA's UI, so a
+/// socket-driven `loadfile` never gets subtitles. Reproduce IINA's default
+/// search semantics client-side and add the matches explicitly. Skipped when
+/// the user configured their own `sub-auto`, which would double-load.
+fn attach_matching_subtitles(context: &MpvLineContext, snapshot: &MediaSnapshot) {
+    if context.kind != PlayerKind::Iina {
+        return;
+    }
+    let Some(path) = snapshot.path.as_deref() else {
+        return;
+    };
+    if path.contains("://") || snapshot.filename.as_deref() == Some("placeholder.png") {
+        return;
+    }
+    let Some(state) = context.state.upgrade() else {
+        return;
+    };
+    let (player_arguments, player_path) = {
+        let config = state.config.lock();
+        (
+            config.player.player_arguments.clone(),
+            config.player.player_path.clone(),
+        )
+    };
+    let mut user_args = player_arguments;
+    if let Some(state) = context.state.upgrade() {
+        let config = state.config.lock();
+        if let Some(extra) = config.player.per_player_arguments.get(&player_path) {
+            user_args.extend(extra.clone());
+        }
+    }
+    if user_args.iter().any(|arg| {
+        let name = arg
+            .trim_start_matches('-')
+            .split('=')
+            .next()
+            .unwrap_or_default()
+            .replace('_', "-");
+        name == "sub-auto" || name == "mpv-sub-auto"
+    }) {
+        return;
+    }
+
+    let ipc = context.ipc.clone();
+    let expected_path = path.to_string();
+    let expected_filename = snapshot.filename.clone();
+    tokio::spawn(async move {
+        let matches = crate::player::subtitles::scan_matching_subtitles(&expected_path);
+        if matches.is_empty() {
+            return;
+        }
+        // The player may have moved on to another file while we were scanning.
+        let current = ipc.get_state();
+        if current.path.as_deref() != Some(expected_path.as_str())
+            && current.filename != expected_filename
+        {
+            debug!("Skipping subtitle attach: player already moved to another file");
+            return;
+        }
+        for (index, subtitle) in matches.iter().enumerate() {
+            let flags = if index == 0 { "select" } else { "auto" };
+            let _ = ipc
+                .send_command_async(MpvCommand::sub_add(&subtitle.to_string_lossy(), flags))
+                .await;
+        }
+    });
+}
+
 fn metadata_fields_to_retry(transaction: &MediaUpdateTransaction) -> Vec<MpvMetadataField> {
     transaction
         .missing_fields()
@@ -852,6 +923,7 @@ async fn finish_media_transaction(
         MediaCommit::Committed(snapshot) => {
             context.ipc.commit_media_snapshot(&snapshot);
             context.file_loaded.store(true, Ordering::SeqCst);
+            attach_matching_subtitles(context, &snapshot);
             if let Some(app_state) = app_state.as_ref() {
                 if transition_guard.is_none() || !is_current_player_context(context) {
                     return;

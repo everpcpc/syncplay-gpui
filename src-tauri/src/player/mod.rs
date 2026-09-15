@@ -15,6 +15,7 @@ pub mod mplayer_slave;
 pub mod mpv_backend;
 pub mod mpv_ipc;
 pub mod properties;
+pub mod subtitles;
 #[allow(dead_code)]
 pub mod vlc_rc;
 #[allow(dead_code)]
