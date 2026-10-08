@@ -720,12 +720,12 @@ impl MpvIpc {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn schedule_playback_refresh_for_test(self: &Arc<Self>, terminal_timeout: Duration) {
         self.schedule_playback_refresh_with_timeout(terminal_timeout);
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn pending_request_count(&self) -> usize {
         self.pending_requests.lock().len()
     }
@@ -831,7 +831,7 @@ impl MpvIpc {
         self.load_events.lock().loads.contains_key(&load_id)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     fn set_socket_write_timeout_for_test(&mut self, timeout: Duration) {
         self.socket_write_timeout = timeout;
     }
