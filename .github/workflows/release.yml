@@ -26,12 +26,10 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          # Get current version
-          CURRENT_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          CURRENT_VERSION=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
 
-          # Get previous version (from previous commit)
           git checkout HEAD^1
-          PREVIOUS_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          PREVIOUS_VERSION=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
           git checkout -
 
           echo "Previous version: $PREVIOUS_VERSION"
@@ -79,30 +77,19 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_amd64.AppImage
+            archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_x64.dmg
+            archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_aarch64.dmg
+            archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_x64-setup.exe
+            archive: zip
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "pnpm"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -116,32 +103,32 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libx11-xcb-dev libxkbcommon-x11-dev libxcb-xkb-dev libwayland-dev libvulkan-dev libfontconfig-dev libasound2-dev libssl-dev
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Build app
+        run: cargo build --release -p syncplay --target ${{ matrix.target }}
 
-      - name: Prepare Apple API key (macOS)
-        if: matrix.os == 'macos-latest'
-        env:
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
         run: |
-          API_KEY_PATH="$RUNNER_TEMP/apple_api_key.p8"
-          echo "$APPLE_API_KEY" | base64 --decode > "$API_KEY_PATH"
-          echo "APPLE_API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+          mkdir -p dist/syncplay
+          cp target/${{ matrix.target }}/release/syncplay dist/syncplay/
+          tar -czf syncplay_${{ needs.create-release.outputs.version }}_${{ matrix.target }}.tar.gz -C dist syncplay
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        run: |
+          mkdir -p dist/syncplay
+          cp target/${{ matrix.target }}/release/syncplay.exe dist/syncplay/
+          Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ needs.create-release.outputs.version }}_${{ matrix.target }}.zip
+        shell: pwsh
+
+      - name: Upload asset
+        uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }}
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: syncplay_${{ needs.create-release.outputs.version }}_${{ matrix.target }}.${{ matrix.archive }}
+          asset_name: syncplay_${{ needs.create-release.outputs.version }}_${{ matrix.target }}.${{ matrix.archive }}
+          asset_content_type: application/octet-stream

@@ -23,17 +23,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 10
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
-        cache: 'pnpm'
-
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
       with:
@@ -46,22 +35,16 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgtk-4-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-
-    - name: Build frontend
-      run: pnpm run build
+        sudo apt-get install -y libx11-xcb-dev libxkbcommon-x11-dev libxcb-xkb-dev libwayland-dev libvulkan-dev libfontconfig-dev libasound2-dev libssl-dev
 
     - name: Run Rust tests
-      run: cd src-tauri && cargo test --verbose
+      run: cargo test --workspace --verbose
 
     - name: Run Rust clippy
-      run: cd src-tauri && cargo clippy -- -D warnings
+      run: cargo clippy --workspace --all-targets -- -D warnings
 
     - name: Check Rust formatting
-      run: cd src-tauri && cargo fmt -- --check
+      run: cargo fmt --all -- --check
 
-    - name: Build Tauri app
-      run: pnpm tauri build --no-sign
+    - name: Build app
+      run: cargo build --release -p syncplay
