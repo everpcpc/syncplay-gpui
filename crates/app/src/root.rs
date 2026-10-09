@@ -216,6 +216,7 @@ impl RootView {
 
         h_flex()
             .w_full()
+            .px_4()
             .justify_between()
             .child(self.render_player_status(cx))
             .child(
