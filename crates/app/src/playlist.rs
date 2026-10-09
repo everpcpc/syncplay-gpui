@@ -580,6 +580,23 @@ impl PlaylistPanel {
             )
             .child(
                 h_flex()
+                    .flex_1()
+                    .justify_center()
+                    .when(item_count > 0, |this| {
+                        let current = current_index
+                            .map(|index| (index + 1).to_string())
+                            .unwrap_or_else(|| "–".to_string());
+                        this.child(
+                            div()
+                                .text_xs()
+                                .font_family(cx.theme().mono_font_family.clone())
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("{current} / {item_count}")),
+                        )
+                    }),
+            )
+            .child(
+                h_flex()
                     .gap_2()
                     .child(
                         Button::new("toggle-shared-playlist")
