@@ -49,7 +49,7 @@ bump-patch:
 
 update-version:
 	@echo "Updating version to $(NEW_VERSION)"
-	@sed -i '' '0,/^version = ".*"/s//version = "$(NEW_VERSION)"/' crates/app/Cargo.toml
+	@perl -0pi -e 's/^version = ".*?"$$/version = "$(NEW_VERSION)"/m' crates/app/Cargo.toml
 	@cargo metadata --format-version 1 > /dev/null
 	@git add crates/app/Cargo.toml Cargo.lock
 	@git commit -m "chore: bump version to $(NEW_VERSION)"
