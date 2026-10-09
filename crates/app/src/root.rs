@@ -1,7 +1,7 @@
 use crate::chat::ChatPanel;
 use crate::connection::ConnectionDialog;
 use crate::playlist::PlaylistPanel;
-use crate::store::{AppStore, ConnectParams};
+use crate::store::{AppStore, ConnectParams, UpdateState};
 use crate::users::UserListPanel;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -10,8 +10,9 @@ use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, TitleBar, WindowExt as _};
 use gpui_kit::{
-    div, prelude::FluentBuilder as _, px, relative, AppContext as _, Context, Entity, IntoElement,
-    ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription, Task, Window,
+    div, prelude::FluentBuilder as _, px, relative, AnyElement, AppContext as _, Context, Entity,
+    IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription, Task,
+    Window,
 };
 
 pub struct RootView {
@@ -77,6 +78,10 @@ impl RootView {
                     cx,
                 );
             });
+        }
+        if config.user.check_for_updates_automatically != Some(false) {
+            self.store
+                .update(cx, |store, cx| store.check_for_updates(false, cx));
         }
     }
 
@@ -534,13 +539,57 @@ impl RootView {
                                 ),
                         )
                     })
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(concat!("v", env!("CARGO_PKG_VERSION"))),
-                    ),
+                    .child(self.render_update_status(cx)),
             )
+    }
+
+    fn render_update_status(&self, cx: &mut Context<Self>) -> AnyElement {
+        let state = self.store.read(cx).update_state.clone();
+        let muted = cx.theme().muted_foreground;
+        match state {
+            UpdateState::Idle => Button::new("check-updates")
+                .ghost()
+                .xsmall()
+                .label(concat!("v", env!("CARGO_PKG_VERSION")))
+                .tooltip("Check for updates")
+                .text_color(muted)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.store
+                        .update(cx, |store, cx| store.check_for_updates(true, cx));
+                }))
+                .into_any_element(),
+            UpdateState::Checking => div()
+                .text_xs()
+                .text_color(muted)
+                .child("Checking for updates…")
+                .into_any_element(),
+            UpdateState::Available(version) => Button::new("install-update")
+                .ghost()
+                .xsmall()
+                .icon(IconName::Download)
+                .label(format!("v{version}"))
+                .tooltip("Download and install")
+                .text_color(cx.theme().info)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.store.update(cx, |store, cx| store.install_update(cx));
+                }))
+                .into_any_element(),
+            UpdateState::Installing(_) => div()
+                .text_xs()
+                .text_color(muted)
+                .child("Updating…")
+                .into_any_element(),
+            UpdateState::Ready(version) => Button::new("restart-for-update")
+                .primary()
+                .xsmall()
+                .icon(IconName::RotateCw)
+                .label("Restart")
+                .tooltip(format!("Restart to finish v{version}"))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.store.read(cx).restart_for_update();
+                }))
+                .into_any_element(),
+        }
     }
 
     fn render_side_column(&self, cx: &mut Context<Self>) -> impl IntoElement {

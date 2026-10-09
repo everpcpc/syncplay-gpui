@@ -6,6 +6,7 @@ mod rooms;
 mod root;
 mod settings;
 mod store;
+mod updater;
 mod users;
 
 use std::sync::Arc;
@@ -24,7 +25,7 @@ fn main() {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "syncplay=info,syncplay_core=info".into()),
+                .unwrap_or_else(|_| "syncplay=info,syncplay_core=info,self_update=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

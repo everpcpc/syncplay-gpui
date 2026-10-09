@@ -40,6 +40,23 @@ pub enum UiEvent {
         targets: Vec<(usize, String)>,
         results: Vec<PlaylistItemInfo>,
     },
+    UpdateCheckFinished {
+        manual: bool,
+        result: Result<Option<String>, String>,
+    },
+    UpdateInstallFinished(Result<String, String>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum UpdateState {
+    Idle,
+    Checking,
+    /// Newer release version published on GitHub.
+    Available(String),
+    /// Download/install of this version is running.
+    Installing(String),
+    /// Installed; restart to finish.
+    Ready(String),
 }
 
 /// Emitted on the store entity so views with a window handle can react.
@@ -83,6 +100,7 @@ pub struct AppStore {
     pub players_refreshing: bool,
     pub connect_pending: bool,
     pub connect_result: Option<Result<String, String>>,
+    pub update_state: UpdateState,
 
     _event_task: Task<()>,
 }
@@ -139,6 +157,7 @@ impl AppStore {
             players_refreshing: false,
             connect_pending: false,
             connect_result: None,
+            update_state: UpdateState::Idle,
             _event_task: event_task,
         }
     }
@@ -188,6 +207,62 @@ impl AppStore {
             } => {
                 self.apply_availability(full_refresh, targets, results);
             }
+            UiEvent::UpdateCheckFinished { manual, result } => match result {
+                Ok(Some(version)) => {
+                    self.update_state = UpdateState::Available(version.clone());
+                    window.push_notification(
+                        (
+                            NotificationType::Info,
+                            format!("Update available: v{version}"),
+                        ),
+                        cx,
+                    );
+                }
+                Ok(None) => {
+                    self.update_state = UpdateState::Idle;
+                    if manual {
+                        window.push_notification(
+                            (NotificationType::Success, "Already up to date"),
+                            cx,
+                        );
+                    }
+                }
+                Err(error) => {
+                    self.update_state = UpdateState::Idle;
+                    if manual {
+                        window.push_notification(
+                            (
+                                NotificationType::Error,
+                                format!("Update check failed: {error}"),
+                            ),
+                            cx,
+                        );
+                    } else {
+                        tracing::warn!("update check failed: {error}");
+                    }
+                }
+            },
+            UiEvent::UpdateInstallFinished(result) => match result {
+                Ok(version) => {
+                    self.update_state = UpdateState::Ready(version.clone());
+                    window.push_notification(
+                        (
+                            NotificationType::Success,
+                            format!("v{version} installed — restart to finish"),
+                        ),
+                        cx,
+                    );
+                }
+                Err(error) => {
+                    if let UpdateState::Installing(version) = &self.update_state {
+                        self.update_state = UpdateState::Available(version.clone());
+                    }
+                    window.push_notification(
+                        (NotificationType::Error, format!("Update failed: {error}")),
+                        cx,
+                    );
+                }
+            },
         }
         cx.notify();
     }
@@ -553,6 +628,44 @@ impl AppStore {
                     .await;
             }
         });
+    }
+
+    pub fn check_for_updates(&mut self, manual: bool, cx: &mut Context<Self>) {
+        if matches!(
+            self.update_state,
+            UpdateState::Checking | UpdateState::Installing(_)
+        ) {
+            return;
+        }
+        self.update_state = UpdateState::Checking;
+        cx.notify();
+
+        let ui_tx = self.ui_tx.clone();
+        self.tokio_handle.spawn(async move {
+            let result = crate::updater::check_for_update().await;
+            let _ = ui_tx
+                .send(UiEvent::UpdateCheckFinished { manual, result })
+                .await;
+        });
+    }
+
+    pub fn install_update(&mut self, cx: &mut Context<Self>) {
+        let UpdateState::Available(version) = &self.update_state else {
+            return;
+        };
+        let version = version.clone();
+        self.update_state = UpdateState::Installing(version);
+        cx.notify();
+
+        let ui_tx = self.ui_tx.clone();
+        self.tokio_handle.spawn(async move {
+            let result = crate::updater::install_update().await;
+            let _ = ui_tx.send(UiEvent::UpdateInstallFinished(result)).await;
+        });
+    }
+
+    pub fn restart_for_update(&self) {
+        crate::updater::restart_app();
     }
 }
 
