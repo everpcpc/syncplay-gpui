@@ -110,6 +110,33 @@ fn main() {
             })
             .expect("failed to open window");
 
+            // The player is a separate child process, so quitting the app
+            // alone leaves it running; tear down the session (which stops
+            // the player) before the process exits.
+            cx.on_app_quit({
+                let core = core.clone();
+                let tokio_handle = tokio_handle.clone();
+                move |_| {
+                    let teardown = tokio_handle.spawn({
+                        let core = core.clone();
+                        async move {
+                            if let Err(error) =
+                                syncplay_core::commands::connection::disconnect_from_server_state(
+                                    &core,
+                                )
+                                .await
+                            {
+                                tracing::warn!("Failed to disconnect during shutdown: {error}");
+                            }
+                        }
+                    });
+                    async move {
+                        let _ = teardown.await;
+                    }
+                }
+            })
+            .detach();
+
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
