@@ -1,0 +1,25 @@
+[package]
+name = "syncplay"
+version = "0.10.10"
+description = "Syncplay desktop client"
+authors = ["everpcpc"]
+license = "Apache-2.0"
+repository = "https://github.com/everpcpc/syncplay-tauri"
+edition = "2021"
+
+[[bin]]
+name = "syncplay"
+path = "src/main.rs"
+
+[dependencies]
+gpui-kit = "0.7"
+syncplay-core = { path = "../core" }
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-channel = "2"
+chrono = "0.4"
+rfd = "0.16"

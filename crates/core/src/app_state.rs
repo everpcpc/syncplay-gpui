@@ -1,0 +1,448 @@
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
+use std::time::Instant;
+use tempfile::TempDir;
+use tokio::sync::Mutex as AsyncMutex;
+
+use crate::client::{
+    chat::ChatManager,
+    local_state::LocalPlaybackState,
+    media_index::MediaIndex,
+    playback_runtime::PlaybackCoordinator,
+    playlist::Playlist,
+    state::{ClientState, GlobalPlayState},
+    sync::SyncEngine,
+};
+use crate::config::{SyncplayConfig, UnpauseAction};
+use crate::network::connection::Connection;
+use crate::network::messages::HelloMessage;
+use crate::network::ping::PingService;
+use crate::player::backend::{PlayerBackend, PlayerKind};
+
+/// Receives UI events emitted by the core (event name, JSON payload).
+pub type EventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
+/// Global application state
+pub struct AppState {
+    /// Network connection to Syncplay server
+    pub connection: Arc<Mutex<Option<Arc<Connection>>>>,
+    /// Identity of the logical client session across transport reconnects.
+    pub connection_session_generation: AtomicU64,
+    /// Invalidates player startup work before lifecycle teardown waits for it.
+    pub player_startup_epoch: AtomicU64,
+    /// Player backend instance
+    pub player: Arc<Mutex<Option<Arc<dyn PlayerBackend>>>>,
+    /// Player process handle
+    pub player_process: Arc<Mutex<Option<tokio::process::Child>>>,
+    /// Serializes player installation and teardown across asynchronous callbacks.
+    pub player_lifecycle: Arc<AsyncMutex<()>>,
+    /// Client state (users, room, etc.)
+    pub client_state: Arc<ClientState>,
+    /// Playlist manager
+    pub playlist: Arc<Playlist>,
+    /// Serialized playlist/file transition state.
+    pub playback: Arc<PlaybackCoordinator>,
+    /// Chat manager
+    pub chat: Arc<ChatManager>,
+    /// Synchronization engine
+    pub sync_engine: Arc<Mutex<SyncEngine>>,
+    /// Cached configuration
+    pub config: Arc<Mutex<SyncplayConfig>>,
+    /// Last hello payload (for TLS re-handshake)
+    pub last_hello: Arc<Mutex<Option<HelloMessage>>>,
+    /// Whether hello has been sent for the current connection
+    pub hello_sent: Arc<Mutex<bool>>,
+    /// Sink receiving events for the UI layer
+    pub event_sink: Arc<Mutex<Option<EventSink>>>,
+    /// Autoplay countdown state
+    pub autoplay: Arc<Mutex<AutoPlayState>>,
+    /// Ping RTT tracking
+    pub ping_service: Arc<Mutex<PingService>>,
+    /// Last time a global playstate was received
+    pub last_global_update: Arc<Mutex<Option<Instant>>>,
+    /// Last outbound State message, used to avoid flooding servers during seek storms
+    pub last_state_message_sent: Arc<Mutex<Option<Instant>>>,
+    /// Last time we established a connection
+    pub last_connect_time: Arc<Mutex<Option<Instant>>>,
+    /// Last time any protocol message was received
+    pub last_protocol_activity: Arc<Mutex<Option<Instant>>>,
+    /// Latest local playback state
+    pub local_playback_state: Arc<Mutex<LocalPlaybackState>>,
+    /// Ignoring-on-the-fly counters
+    pub ignoring_on_the_fly: Arc<Mutex<IgnoringOnTheFlyState>>,
+    /// Server feature support
+    pub server_features: Arc<Mutex<ServerFeatures>>,
+    /// Last rewind timestamp
+    pub last_rewind_time: Arc<Mutex<Option<Instant>>>,
+    /// Last local seek origin position for notifications
+    pub last_seek_from_position: Arc<Mutex<Option<f64>>>,
+    /// Last playlist advance timestamp
+    pub last_advance_time: Arc<Mutex<Option<Instant>>>,
+    /// Last time a file update was sent/received
+    pub last_updated_file_time: Arc<Mutex<Option<Instant>>>,
+    /// Last time we paused due to a user leaving
+    pub last_paused_on_leave_time: Arc<Mutex<Option<Instant>>>,
+    /// Whether we should restore playlist on reconnect
+    pub playlist_may_need_restoring: Arc<Mutex<bool>>,
+    /// Whether client TLS is supported
+    pub client_supports_tls: Arc<Mutex<bool>>,
+    /// Whether server TLS is supported
+    pub server_supports_tls: Arc<Mutex<bool>>,
+    /// Reconnect state
+    pub reconnect_state: Arc<Mutex<ReconnectState>>,
+    /// Last connection snapshot for reconnect
+    pub reconnect_snapshot: Arc<Mutex<Option<ConnectionSnapshot>>>,
+    /// Whether disconnect was initiated by user
+    pub manual_disconnect: Arc<Mutex<bool>>,
+    /// Warning timers for OSD warnings
+    pub warning_timers: Arc<Mutex<WarningTimers>>,
+    /// Last time a player process was spawned
+    pub last_player_spawn: Arc<Mutex<Option<Instant>>>,
+    /// Kind of the last spawned player
+    pub last_player_kind: Arc<Mutex<Option<PlayerKind>>>,
+    /// Whether a player connection is in progress
+    pub player_connecting: Arc<Mutex<bool>>,
+    /// Runtime directory for MPV IPC socket
+    pub mpv_runtime_dir: Arc<Mutex<Option<TempDir>>>,
+    /// Cached MPV IPC socket path
+    pub mpv_socket_path: Arc<Mutex<Option<String>>>,
+    /// Test-only fake player launcher used by lifecycle regression tests.
+    #[cfg(test)]
+    pub fake_player_factory: Arc<Mutex<Option<Arc<crate::player::backend::FakePlayerFactory>>>>,
+    /// Cached detected players
+    pub detected_players: Arc<Mutex<Vec<crate::player::detection::DetectedPlayer>>>,
+    /// Timestamp (ms) when players were detected
+    pub detected_players_updated_at: Arc<Mutex<Option<i64>>>,
+    /// Controlled room passwords
+    pub controlled_room_passwords: Arc<Mutex<HashMap<String, String>>>,
+    /// Last controller password attempt
+    pub last_control_password_attempt: Arc<Mutex<Option<String>>>,
+    /// Room warning state
+    pub room_warning_state: Arc<Mutex<RoomWarningState>>,
+    /// Whether the room warning task is running
+    pub room_warning_task_running: Arc<Mutex<bool>>,
+    /// Media index cache
+    pub media_index: Arc<MediaIndex>,
+}
+
+#[derive(Debug, Default)]
+pub struct IgnoringOnTheFlyState {
+    pub server: u32,
+    pub client: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConnectionSnapshot {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub room: String,
+    pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ReconnectState {
+    pub enabled: bool,
+    pub running: bool,
+    pub attempts: u32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WarningTimerState {
+    pub active: bool,
+    pub displayed_for: u32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WarningTimers {
+    pub alone: WarningTimerState,
+    pub file_differences: WarningTimerState,
+    pub not_ready: WarningTimerState,
+}
+
+impl AppState {
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self {
+            connection: Arc::new(Mutex::new(None)),
+            connection_session_generation: AtomicU64::new(0),
+            player_startup_epoch: AtomicU64::new(0),
+            player: Arc::new(Mutex::new(None)),
+            player_process: Arc::new(Mutex::new(None)),
+            player_lifecycle: Arc::new(AsyncMutex::new(())),
+            client_state: ClientState::new(),
+            playlist: Playlist::new(),
+            playback: Arc::new(PlaybackCoordinator::new()),
+            chat: ChatManager::new(),
+            sync_engine: Arc::new(Mutex::new(SyncEngine::new())),
+            config: Arc::new(Mutex::new(SyncplayConfig::default())),
+            last_hello: Arc::new(Mutex::new(None)),
+            hello_sent: Arc::new(Mutex::new(false)),
+            event_sink: Arc::new(Mutex::new(None)),
+            autoplay: Arc::new(Mutex::new(AutoPlayState::default())),
+            ping_service: Arc::new(Mutex::new(PingService::default())),
+            last_global_update: Arc::new(Mutex::new(None)),
+            last_state_message_sent: Arc::new(Mutex::new(None)),
+            last_connect_time: Arc::new(Mutex::new(None)),
+            last_protocol_activity: Arc::new(Mutex::new(None)),
+            local_playback_state: Arc::new(Mutex::new(LocalPlaybackState::new())),
+            ignoring_on_the_fly: Arc::new(Mutex::new(IgnoringOnTheFlyState::default())),
+            server_features: Arc::new(Mutex::new(ServerFeatures::default())),
+            last_rewind_time: Arc::new(Mutex::new(None)),
+            last_seek_from_position: Arc::new(Mutex::new(None)),
+            last_advance_time: Arc::new(Mutex::new(None)),
+            last_updated_file_time: Arc::new(Mutex::new(None)),
+            last_paused_on_leave_time: Arc::new(Mutex::new(None)),
+            playlist_may_need_restoring: Arc::new(Mutex::new(false)),
+            client_supports_tls: Arc::new(Mutex::new(true)),
+            server_supports_tls: Arc::new(Mutex::new(true)),
+            reconnect_state: Arc::new(Mutex::new(ReconnectState::default())),
+            reconnect_snapshot: Arc::new(Mutex::new(None)),
+            manual_disconnect: Arc::new(Mutex::new(false)),
+            warning_timers: Arc::new(Mutex::new(WarningTimers::default())),
+            last_player_spawn: Arc::new(Mutex::new(None)),
+            last_player_kind: Arc::new(Mutex::new(None)),
+            mpv_runtime_dir: Arc::new(Mutex::new(None)),
+            mpv_socket_path: Arc::new(Mutex::new(None)),
+            player_connecting: Arc::new(Mutex::new(false)),
+            #[cfg(test)]
+            fake_player_factory: Arc::new(Mutex::new(None)),
+            detected_players: Arc::new(Mutex::new(Vec::new())),
+            detected_players_updated_at: Arc::new(Mutex::new(None)),
+            controlled_room_passwords: Arc::new(Mutex::new(HashMap::new())),
+            last_control_password_attempt: Arc::new(Mutex::new(None)),
+            room_warning_state: Arc::new(Mutex::new(RoomWarningState::default())),
+            room_warning_task_running: Arc::new(Mutex::new(false)),
+            media_index: MediaIndex::new(),
+        })
+    }
+
+    /// Set the sink receiving events for the UI layer
+    pub fn set_event_sink(&self, sink: EventSink) {
+        *self.event_sink.lock() = Some(sink);
+    }
+
+    pub fn effective_global_state(&self) -> GlobalPlayState {
+        let mut global = self.client_state.get_global_state();
+        if !global.paused {
+            if let Some(last_update) = *self.last_global_update.lock() {
+                global.position += last_update.elapsed().as_secs_f64();
+            }
+        }
+        global
+    }
+
+    /// Emit an event to the frontend
+    pub fn emit_event(&self, event: &str, payload: impl serde::Serialize + Clone) {
+        let Some(sink) = self.event_sink.lock().clone() else {
+            return;
+        };
+        match serde_json::to_value(payload) {
+            Ok(value) => sink(event, value),
+            Err(e) => tracing::error!("Failed to serialize event {} payload: {}", event, e),
+        }
+    }
+
+    /// Check if connected to server
+    pub fn is_connected(&self) -> bool {
+        self.connection.lock().as_ref().is_some_and(|connection| {
+            connection.state() == crate::network::connection::ConnectionState::Authenticated
+        })
+    }
+
+    /// Check if player is connected
+    pub fn is_player_connected(&self) -> bool {
+        self.player
+            .lock()
+            .as_ref()
+            .map(|player| player.is_connected())
+            .unwrap_or(false)
+    }
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            connection: Arc::new(Mutex::new(None)),
+            connection_session_generation: AtomicU64::new(0),
+            player_startup_epoch: AtomicU64::new(0),
+            player: Arc::new(Mutex::new(None)),
+            player_process: Arc::new(Mutex::new(None)),
+            player_lifecycle: Arc::new(AsyncMutex::new(())),
+            client_state: ClientState::new(),
+            playlist: Playlist::new(),
+            playback: Arc::new(PlaybackCoordinator::new()),
+            chat: ChatManager::new(),
+            sync_engine: Arc::new(Mutex::new(SyncEngine::new())),
+            config: Arc::new(Mutex::new(SyncplayConfig::default())),
+            last_hello: Arc::new(Mutex::new(None)),
+            hello_sent: Arc::new(Mutex::new(false)),
+            event_sink: Arc::new(Mutex::new(None)),
+            autoplay: Arc::new(Mutex::new(AutoPlayState::default())),
+            ping_service: Arc::new(Mutex::new(PingService::default())),
+            last_global_update: Arc::new(Mutex::new(None)),
+            last_state_message_sent: Arc::new(Mutex::new(None)),
+            last_connect_time: Arc::new(Mutex::new(None)),
+            last_protocol_activity: Arc::new(Mutex::new(None)),
+            local_playback_state: Arc::new(Mutex::new(LocalPlaybackState::new())),
+            ignoring_on_the_fly: Arc::new(Mutex::new(IgnoringOnTheFlyState::default())),
+            server_features: Arc::new(Mutex::new(ServerFeatures::default())),
+            last_rewind_time: Arc::new(Mutex::new(None)),
+            last_seek_from_position: Arc::new(Mutex::new(None)),
+            last_advance_time: Arc::new(Mutex::new(None)),
+            last_updated_file_time: Arc::new(Mutex::new(None)),
+            last_paused_on_leave_time: Arc::new(Mutex::new(None)),
+            playlist_may_need_restoring: Arc::new(Mutex::new(false)),
+            client_supports_tls: Arc::new(Mutex::new(true)),
+            server_supports_tls: Arc::new(Mutex::new(true)),
+            reconnect_state: Arc::new(Mutex::new(ReconnectState::default())),
+            reconnect_snapshot: Arc::new(Mutex::new(None)),
+            manual_disconnect: Arc::new(Mutex::new(false)),
+            warning_timers: Arc::new(Mutex::new(WarningTimers::default())),
+            last_player_spawn: Arc::new(Mutex::new(None)),
+            last_player_kind: Arc::new(Mutex::new(None)),
+            mpv_runtime_dir: Arc::new(Mutex::new(None)),
+            mpv_socket_path: Arc::new(Mutex::new(None)),
+            player_connecting: Arc::new(Mutex::new(false)),
+            #[cfg(test)]
+            fake_player_factory: Arc::new(Mutex::new(None)),
+            detected_players: Arc::new(Mutex::new(Vec::new())),
+            detected_players_updated_at: Arc::new(Mutex::new(None)),
+            controlled_room_passwords: Arc::new(Mutex::new(HashMap::new())),
+            last_control_password_attempt: Arc::new(Mutex::new(None)),
+            room_warning_state: Arc::new(Mutex::new(RoomWarningState::default())),
+            room_warning_task_running: Arc::new(Mutex::new(false)),
+            media_index: MediaIndex::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoPlayState {
+    pub enabled: bool,
+    pub min_users: i32,
+    pub require_same_filenames: bool,
+    pub unpause_action: UnpauseAction,
+    pub countdown_active: bool,
+    pub countdown_remaining: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerFeatures {
+    pub feature_list: bool,
+    pub shared_playlists: bool,
+    pub chat: bool,
+    pub readiness: bool,
+    pub managed_rooms: bool,
+    pub persistent_rooms: bool,
+    pub set_others_readiness: bool,
+    pub max_chat_message_length: Option<usize>,
+    pub max_username_length: Option<usize>,
+    pub max_room_name_length: Option<usize>,
+    pub max_filename_length: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RoomWarningState {
+    pub alone: bool,
+    pub file_differences: Option<String>,
+    pub not_ready: Option<String>,
+}
+
+impl Default for AutoPlayState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            min_users: -1,
+            require_same_filenames: true,
+            unpause_action: UnpauseAction::IfOthersReady,
+            countdown_active: false,
+            countdown_remaining: 0,
+        }
+    }
+}
+
+impl Default for ServerFeatures {
+    fn default() -> Self {
+        Self {
+            feature_list: false,
+            shared_playlists: true,
+            chat: true,
+            readiness: true,
+            managed_rooms: true,
+            persistent_rooms: false,
+            set_others_readiness: false,
+            max_chat_message_length: Some(50),
+            max_username_length: Some(16),
+            max_room_name_length: Some(35),
+            max_filename_length: Some(250),
+        }
+    }
+}
+
+/// Event payloads for frontend
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConnectionStatusEvent {
+    pub connected: bool,
+    pub server: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UserListEvent {
+    pub users: Vec<UserInfo>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UserInfo {
+    pub username: String,
+    pub room: String,
+    pub file: Option<String>,
+    pub is_ready: bool,
+    pub is_controller: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChatMessageEvent {
+    pub timestamp: String,
+    pub username: Option<String>,
+    pub message: String,
+    pub message_type: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlaylistEvent {
+    pub items: Vec<String>,
+    pub current_index: Option<usize>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PlayerStateEvent {
+    pub filename: Option<String>,
+    pub position: Option<f64>,
+    pub duration: Option<f64>,
+    pub paused: Option<bool>,
+    pub speed: Option<f64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_global_position_advances_only_while_playing() {
+        let state = AppState::new();
+        state.client_state.set_global_state(10.0, false, None);
+        *state.last_global_update.lock() = Some(Instant::now() - std::time::Duration::from_secs(2));
+
+        let playing = state.effective_global_state();
+        assert!(playing.position >= 12.0);
+
+        state.client_state.set_global_state(10.0, true, None);
+        assert_eq!(state.effective_global_state().position, 10.0);
+    }
+}

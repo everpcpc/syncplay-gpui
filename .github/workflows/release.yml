@@ -26,21 +26,16 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          # Get current version
-          CURRENT_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
+          CURRENT_VERSION=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
+          PREVIOUS_VERSION=$(git show HEAD^1:crates/app/Cargo.toml 2>/dev/null | grep -m1 '^version' | cut -d'"' -f2 || true)
 
-          # Get previous version (from previous commit)
-          git checkout HEAD^1
-          PREVIOUS_VERSION=$(jq -r '.version' src-tauri/tauri.conf.json)
-          git checkout -
-
-          echo "Previous version: $PREVIOUS_VERSION"
+          echo "Previous version: ${PREVIOUS_VERSION:-<none>}"
           echo "Current version: $CURRENT_VERSION"
 
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+            echo "Version changed from ${PREVIOUS_VERSION:-<none>} to $CURRENT_VERSION"
           else
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "No version change detected"
@@ -51,58 +46,41 @@ jobs:
     needs: check-version
     if: needs.check-version.outputs.version_changed == 'true'
     runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ needs.check-version.outputs.new_version }}
     steps:
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.check-version.outputs.new_version }}
-          release_name: Release v${{ needs.check-version.outputs.new_version }}
+          name: Release v${{ needs.check-version.outputs.new_version }}
           draft: false
           prerelease: false
 
   build-release:
     name: Build Release
-    needs: create-release
+    needs: [check-version, create-release]
     runs-on: ${{ matrix.os }}
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_amd64.AppImage
+            archive: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_x64.dmg
+            archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_aarch64.dmg
+            archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: syncplay-tauri_${{ needs.create-release.outputs.version }}_x64-setup.exe
+            archive: zip
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "pnpm"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -116,32 +94,28 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+          sudo apt-get install -y libx11-xcb-dev libxkbcommon-x11-dev libxcb-xkb-dev libwayland-dev libvulkan-dev libfontconfig-dev libasound2-dev libssl-dev
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Build app
+        run: cargo build --release -p syncplay --target ${{ matrix.target }}
 
-      - name: Prepare Apple API key (macOS)
-        if: matrix.os == 'macos-latest'
-        env:
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
         run: |
-          API_KEY_PATH="$RUNNER_TEMP/apple_api_key.p8"
-          echo "$APPLE_API_KEY" | base64 --decode > "$API_KEY_PATH"
-          echo "APPLE_API_KEY_PATH=$API_KEY_PATH" >> "$GITHUB_ENV"
+          mkdir -p dist/syncplay
+          cp target/${{ matrix.target }}/release/syncplay dist/syncplay/
+          tar -czf syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.tar.gz -C dist syncplay
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ${{ env.APPLE_API_KEY_PATH }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        run: |
+          mkdir -p dist/syncplay
+          cp target/${{ matrix.target }}/release/syncplay.exe dist/syncplay/
+          Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.zip
+        shell: pwsh
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
         with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          includeUpdaterJson: true
-          args: --target ${{ matrix.target }}
+          tag_name: v${{ needs.check-version.outputs.new_version }}
+          files: syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.${{ matrix.archive }}
