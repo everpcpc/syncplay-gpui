@@ -1,10 +1,11 @@
 use crate::chat::ChatPanel;
-use crate::connection::ConnectionDialog;
+use crate::connection::ConnectPanel;
 use crate::playlist::PlaylistPanel;
 use crate::store::{AppStore, ConnectParams, UpdateState};
 use crate::users::UserListPanel;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{h_flex, v_flex};
@@ -20,7 +21,7 @@ pub struct RootView {
     chat: Entity<ChatPanel>,
     user_list: Entity<UserListPanel>,
     playlist: Entity<PlaylistPanel>,
-    connection_dialog: Entity<ConnectionDialog>,
+    connect_panel: Entity<ConnectPanel>,
     main_split: Entity<ResizableState>,
     side_split: Entity<ResizableState>,
     layout_save_task: Task<()>,
@@ -33,7 +34,7 @@ impl RootView {
         let chat = cx.new(|cx| ChatPanel::new(store.clone(), window, cx));
         let user_list = cx.new(|cx| UserListPanel::new(store.clone(), window, cx));
         let playlist = cx.new(|cx| PlaylistPanel::new(store.clone(), window, cx));
-        let connection_dialog = cx.new(|cx| ConnectionDialog::new(store.clone(), window, cx));
+        let connect_panel = cx.new(|cx| ConnectPanel::new(store.clone(), window, cx));
         let main_split = cx.new(|_| ResizableState::default());
         let side_split = cx.new(|_| ResizableState::default());
         let subscriptions = vec![cx.observe(&store, |_, _, cx| cx.notify())];
@@ -43,7 +44,7 @@ impl RootView {
             chat,
             user_list,
             playlist,
-            connection_dialog,
+            connect_panel,
             main_split,
             side_split,
             layout_save_task: Task::ready(()),
@@ -52,16 +53,14 @@ impl RootView {
         };
         view.watch_window_size(window, cx);
         // Defer so the window's Root (dialogs, notifications) exists by the
-        // time the startup logic may open the connection dialog.
+        // time the startup logic may auto-connect.
         cx.defer_in(window, |this, window, cx| this.startup(window, cx));
         view
     }
 
-    fn startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn startup(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let config = self.store.read(cx).config.clone();
-        if config.user.force_gui_prompt {
-            self.open_connection_dialog(window, cx);
-        } else if config.user.auto_connect
+        if config.user.auto_connect
             && !config.user.username.trim().is_empty()
             && !self.store.read(cx).is_connected()
         {
@@ -85,20 +84,9 @@ impl RootView {
         }
     }
 
-    fn open_connection_dialog(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let dialog_view = self.connection_dialog.clone();
-        dialog_view.update(cx, |dialog, cx| dialog.prepare(window, cx));
-        window.open_dialog(cx, move |dialog, _, cx| {
-            let connected = dialog_view.read(cx).store().read(cx).is_connected();
-            dialog
-                .title(if connected {
-                    "Connected"
-                } else {
-                    "Connect to Server"
-                })
-                .w(px(560.))
-                .child(dialog_view.clone())
-        });
+    fn disconnect(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.store.read(cx).disconnect();
+        window.push_notification((NotificationType::Info, "Disconnected from server"), cx);
     }
 
     fn toggle_theme(&self, cx: &mut Context<Self>) {
@@ -217,21 +205,6 @@ impl RootView {
             IconName::PanelLeftOpen
         };
 
-        let connect_button = if connected {
-            Button::new("open-connection")
-                .ghost()
-                .small()
-                .icon(IconName::Link2)
-                .tooltip("Connected")
-                .text_color(cx.theme().info)
-        } else {
-            Button::new("open-connection")
-                .primary()
-                .small()
-                .icon(IconName::Link2)
-                .label("Connect")
-        };
-
         h_flex()
             .w_full()
             .px_4()
@@ -288,9 +261,19 @@ impl RootView {
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_theme(cx))),
                     )
                     .child(div().w(px(1.)).h_4().bg(cx.theme().border))
-                    .child(connect_button.on_click(
-                        cx.listener(|this, _, window, cx| this.open_connection_dialog(window, cx)),
-                    ))
+                    .when(connected, |this| {
+                        this.child(
+                            Button::new("disconnect")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Link2Off)
+                                .tooltip("Disconnect from server")
+                                .text_color(cx.theme().danger)
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.disconnect(window, cx)),
+                                ),
+                        )
+                    })
                     .child(
                         Button::new("open-settings")
                             .ghost()
@@ -458,52 +441,6 @@ impl RootView {
                     ),
                 ),
         )
-    }
-
-    fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .size_full()
-            .items_center()
-            .justify_center()
-            .gap_3()
-            .child(
-                div()
-                    .size_16()
-                    .rounded(cx.theme().radius_lg)
-                    .bg(cx.theme().info.opacity(0.12))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        Icon::new(IconName::MonitorPlay)
-                            .with_size(px(32.))
-                            .text_color(cx.theme().info),
-                    ),
-            )
-            .child(
-                div()
-                    .pt_2()
-                    .text_lg()
-                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                    .child("Welcome to Syncplay"),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Connect to a server to watch together."),
-            )
-            .child(
-                div().pt_3().child(
-                    Button::new("welcome-connect")
-                        .primary()
-                        .icon(IconName::Link2)
-                        .label("Connect to Server")
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.open_connection_dialog(window, cx)
-                        })),
-                ),
-            )
     }
 
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -733,7 +670,7 @@ impl Render for RootView {
                                     .child(div().flex_1().min_h_0().child(if connected {
                                         self.chat.clone().into_any_element()
                                     } else {
-                                        self.render_welcome(cx).into_any_element()
+                                        self.connect_panel.clone().into_any_element()
                                     })),
                             ),
                         ),

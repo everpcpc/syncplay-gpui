@@ -1,22 +1,28 @@
 use std::time::Duration;
 
+use gpui_kit::component::button::Button;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::form::{field, v_form};
 use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, IndexPath, WindowExt as _};
-use gpui_kit::{
-    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Context, Entity, Hsla,
-    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window,
+use gpui_kit::component::{
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, WindowExt as _,
 };
+use gpui_kit::{
+    div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Context, Entity,
+    FontWeight, Hsla, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
+    Subscription, Window,
+};
+use syncplay_core::config::settings::PlayerConfig;
 use syncplay_core::config::settings::{
     ChatInputPosition, ChatOutputMode, PrivacyMode, UnpauseAction,
 };
 use syncplay_core::config::UserPreferences;
+use syncplay_core::player::detection::DetectedPlayer;
 
-use crate::store::AppStore;
+use crate::store::{AppStore, StoreEvent};
 
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
@@ -51,8 +57,9 @@ const UPDATE_CHECK_OPTIONS: [(&str, Option<bool>); 3] = [
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SettingsTab {
-    Sync = 0,
+pub(crate) enum SettingsTab {
+    Player = 0,
+    Sync,
     Readiness,
     Privacy,
     Chat,
@@ -63,12 +70,13 @@ enum SettingsTab {
 impl SettingsTab {
     fn from_index(ix: usize) -> Self {
         match ix {
-            1 => Self::Readiness,
-            2 => Self::Privacy,
-            3 => Self::Chat,
-            4 => Self::Osd,
-            5 => Self::Misc,
-            _ => Self::Sync,
+            1 => Self::Sync,
+            2 => Self::Readiness,
+            3 => Self::Privacy,
+            4 => Self::Chat,
+            5 => Self::Osd,
+            6 => Self::Misc,
+            _ => Self::Player,
         }
     }
 }
@@ -135,6 +143,12 @@ pub struct SettingsDialog {
 
     // Misc
     check_for_updates: Entity<SelectState<Vec<String>>>,
+
+    // Player; saved immediately like the old connection dialog did, not via
+    // the debounced user-preferences draft.
+    player_select: Entity<SelectState<Vec<String>>>,
+    player_path: Entity<InputState>,
+    player_args: Entity<InputState>,
 
     _subscriptions: Vec<Subscription>,
 }
@@ -363,7 +377,72 @@ impl SettingsDialog {
         );
         subscriptions.push(sub);
 
-        Self {
+        let player_path_value = store.read(cx).config.player.player_path.clone();
+        let player_args_value = store.read(cx).config.player.player_arguments.join(" ");
+        let player_path = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder("/usr/local/bin/mpv");
+            input.set_value(
+                if player_path_value == "custom" {
+                    String::new()
+                } else {
+                    player_path_value
+                },
+                window,
+                cx,
+            );
+            input
+        });
+        subscriptions.push(cx.subscribe_in(
+            &player_path,
+            window,
+            |this, input, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let path = input.read(cx).value().to_string();
+                    this.update_player_config(cx, |player| player.player_path = path);
+                }
+            },
+        ));
+        let player_args = cx.new(|cx| {
+            let mut input = InputState::new(window, cx).placeholder("--fullscreen --no-border");
+            input.set_value(player_args_value, window, cx);
+            input
+        });
+        subscriptions.push(cx.subscribe_in(
+            &player_args,
+            window,
+            |this, input, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let args = input
+                        .read(cx)
+                        .value()
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect();
+                    this.update_player_config(cx, |player| player.player_arguments = args);
+                }
+            },
+        ));
+        let player_select = cx.new(|cx| SelectState::new(Vec::<String>::new(), None, window, cx));
+        subscriptions.push(cx.subscribe_in(
+            &player_select,
+            window,
+            |this, _, event: &SelectEvent<Vec<String>>, window, cx| {
+                if let SelectEvent::Confirm(Some(value)) = event {
+                    this.on_player_selected(value.clone(), window, cx);
+                }
+            },
+        ));
+        subscriptions.push(cx.subscribe_in(
+            &store,
+            window,
+            |this, _, event: &StoreEvent, window, cx| {
+                if matches!(event, StoreEvent::PlayersDetected) {
+                    this.sync_player_select(window, cx);
+                }
+            },
+        ));
+
+        let mut this = Self {
             store,
             active_tab: SettingsTab::Sync,
             draft_user: user,
@@ -400,8 +479,13 @@ impl SettingsDialog {
             chat_timeout,
             osd_duration,
             check_for_updates,
+            player_select,
+            player_path,
+            player_args,
             _subscriptions: subscriptions,
-        }
+        };
+        this.sync_player_select(window, cx);
+        this
     }
 
     fn number_field<T>(
@@ -512,6 +596,66 @@ impl SettingsDialog {
             .on_click(cx.listener(move |this, checked, window, cx| {
                 this.edit_user_draft(window, cx, |user| apply(user, *checked));
             }))
+    }
+
+    fn update_player_config(&self, cx: &mut Context<Self>, edit: impl FnOnce(&mut PlayerConfig)) {
+        let mut config = self.store.read(cx).config.clone();
+        edit(&mut config.player);
+        self.store.read(cx).update_config(config);
+    }
+
+    fn refresh_players(&mut self, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| {
+            store.load_cached_players(cx);
+            store.refresh_players(cx);
+        });
+    }
+
+    fn sync_player_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (player_path, players) = {
+            let store = self.store.read(cx);
+            (
+                store.config.player.player_path.clone(),
+                store.detected_players.clone(),
+            )
+        };
+
+        let mut items: Vec<String> = players.iter().map(player_label).collect();
+        items.push(CUSTOM_PATH_LABEL.to_string());
+
+        let selected = if player_path == "custom" {
+            Some(IndexPath::new(items.len() - 1))
+        } else {
+            players
+                .iter()
+                .position(|player| player.path == player_path)
+                .map(IndexPath::new)
+        };
+        self.player_select.update(cx, |select, cx| {
+            select.set_items(items, window, cx);
+            select.set_selected_index(selected, window, cx);
+        });
+    }
+
+    fn on_player_selected(&mut self, label: String, window: &mut Window, cx: &mut Context<Self>) {
+        if label == CUSTOM_PATH_LABEL {
+            self.player_path.update(cx, |input, cx| {
+                input.set_value("", window, cx);
+            });
+            self.update_player_config(cx, |player| player.player_path = "custom".to_string());
+        } else if let Some(path) = self
+            .store
+            .read(cx)
+            .detected_players
+            .iter()
+            .find(|player| player_label(player) == label)
+            .map(|player| player.path.clone())
+        {
+            self.player_path.update(cx, |input, cx| {
+                input.set_value(path.clone(), window, cx);
+            });
+            self.update_player_config(cx, |player| player.player_path = path);
+        }
     }
 
     fn edit_user_draft(
@@ -751,6 +895,96 @@ impl SettingsDialog {
             .when_some(self.save_error.clone(), |this, error| {
                 this.child(div().text_xs().text_color(cx.theme().danger).child(error))
             })
+    }
+
+    fn render_player_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (players, players_refreshing, players_checked_at, player_path) = {
+            let store = self.store.read(cx);
+            (
+                store.detected_players.clone(),
+                store.players_refreshing,
+                store.detected_players_at,
+                store.config.player.player_path.clone(),
+            )
+        };
+
+        let checked_label = players_checked_at.and_then(|at| {
+            chrono::DateTime::from_timestamp_millis(at)
+                .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
+        });
+        let picker: AnyElement = if players.is_empty() {
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("No players detected. Enter path manually.")
+                .into_any_element()
+        } else {
+            Select::new(&self.player_select)
+                .w_full()
+                .placeholder("Select a player...")
+                .into_any_element()
+        };
+
+        let mut form = v_form().child(
+            field().label_indent(false).child(
+                v_flex()
+                    .gap_2()
+                    .child(
+                        h_flex()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .child("Media Player"),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .when_some(checked_label, |this, label| {
+                                        this.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(format!("Last checked {label}")),
+                                        )
+                                    })
+                                    .child(
+                                        Button::new("refresh-players")
+                                            .outline()
+                                            .xsmall()
+                                            .label(if players_refreshing {
+                                                "Refreshing..."
+                                            } else {
+                                                "Refresh Players"
+                                            })
+                                            .disabled(players_refreshing)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.refresh_players(cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                    .child(picker),
+            ),
+        );
+        if player_path == "custom"
+            || players.is_empty()
+            || !players.iter().any(|player| player.path == player_path)
+        {
+            form = form.child(
+                field()
+                    .label("Player Path (Manual)")
+                    .child(Input::new(&self.player_path))
+                    .description("Full path to media player executable"),
+            );
+        }
+        form.child(
+            field()
+                .label("Player Arguments")
+                .child(Input::new(&self.player_args))
+                .description("Arguments applied when launching the player"),
+        )
     }
 
     fn render_sync_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1139,6 +1373,24 @@ impl SettingsDialog {
         v_flex()
             .gap_4()
             .child(
+                v_form().child(field().label_indent(false).child(self.checkbox(
+                    "auto-connect",
+                    "Auto-connect on startup",
+                    self.draft_user.auto_connect,
+                    |user, value| user.auto_connect = value,
+                    cx,
+                ))),
+            )
+            .child(
+                v_form().child(field().label_indent(false).child(self.checkbox(
+                    "autosave-joins",
+                    "Auto-save joined rooms",
+                    self.draft_user.autosave_joins_to_list,
+                    |user, value| user.autosave_joins_to_list = value,
+                    cx,
+                ))),
+            )
+            .child(
                 v_form().child(
                     field()
                         .label("Check for updates automatically")
@@ -1168,6 +1420,7 @@ impl Render for SettingsDialog {
             .underline()
             .selected_index(tab_index)
             .children([
+                Tab::new().label("Player"),
                 Tab::new().label("Sync"),
                 Tab::new().label("Readiness"),
                 Tab::new().label("Privacy"),
@@ -1177,10 +1430,14 @@ impl Render for SettingsDialog {
             ])
             .on_click(cx.listener(|this, ix, _, cx| {
                 this.active_tab = SettingsTab::from_index(*ix);
+                if this.active_tab == SettingsTab::Player {
+                    this.refresh_players(cx);
+                }
                 cx.notify();
             }));
 
         let content: AnyElement = match self.active_tab {
+            SettingsTab::Player => self.render_player_tab(cx).into_any_element(),
             SettingsTab::Sync => self.render_sync_tab(cx).into_any_element(),
             SettingsTab::Readiness => self.render_readiness_tab(cx).into_any_element(),
             SettingsTab::Privacy => self.render_privacy_tab(cx).into_any_element(),
@@ -1261,8 +1518,35 @@ fn sync_select<T>(
 /// Open the settings dialog. A fresh snapshot of the store config is taken on
 /// every open, matching the web client's reload-on-open behavior.
 pub fn open_settings_dialog(window: &mut Window, cx: &mut App, store: Entity<AppStore>) {
-    let view = cx.new(|cx| SettingsDialog::new(store, window, cx));
+    open_settings_dialog_at(window, cx, store, SettingsTab::Sync);
+}
+
+/// Open the settings dialog pre-selected to a tab; the player variant also
+/// kicks off player detection so the picker is warm.
+pub(crate) fn open_settings_dialog_at(
+    window: &mut Window,
+    cx: &mut App,
+    store: Entity<AppStore>,
+    tab: SettingsTab,
+) {
+    let view = cx.new(|cx| {
+        let mut this = SettingsDialog::new(store, window, cx);
+        this.active_tab = tab;
+        this
+    });
+    if tab == SettingsTab::Player {
+        view.update(cx, |this, cx| this.refresh_players(cx));
+    }
     window.open_dialog(cx, move |dialog, _, _| {
         dialog.title("Settings").w(px(896.)).child(view.clone())
     });
+}
+
+const CUSTOM_PATH_LABEL: &str = "Custom path...";
+
+fn player_label(player: &DetectedPlayer) -> String {
+    match &player.version {
+        Some(version) => format!("{} ({}) - {}", player.name, version, player.path),
+        None => format!("{} - {}", player.name, player.path),
+    }
 }
