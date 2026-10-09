@@ -19,7 +19,7 @@ jobs:
       version_changed: ${{ steps.check.outputs.changed }}
       new_version: ${{ steps.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 2
 
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.check-version.outputs.new_version }}
           name: Release v${{ needs.check-version.outputs.new_version }}
@@ -82,7 +82,7 @@ jobs:
             archive: zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -90,7 +90,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -134,27 +134,31 @@ jobs:
           cp target/${{ matrix.target }}/release/syncplay.exe dist/syncplay/
           Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.zip
           cp target/${{ matrix.target }}/release/syncplay.exe packaging/windows/syncplay.exe
+          # NSIS is not in the runner image anymore; chocolatey provides it.
+          choco install nsis --no-progress -y
+          $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { throw "makensis not found at $makensis" }
           $outfile = "${{ github.workspace }}\syncplay_${{ needs.check-version.outputs.new_version }}_x64-setup.exe"
-          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=${{ needs.check-version.outputs.new_version }} /DOUTFILE="$outfile" packaging\windows\installer.nsi
+          & $makensis /DVERSION=${{ needs.check-version.outputs.new_version }} /DOUTFILE="$outfile" packaging\windows\installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: pwsh
 
       - name: Upload release asset (updater archive)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.check-version.outputs.new_version }}
           files: syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.${{ matrix.archive }}
 
       - name: Upload release asset (DMG)
         if: matrix.os == 'macos-latest'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.check-version.outputs.new_version }}
           files: dist/syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.dmg_arch }}.dmg
 
       - name: Upload release asset (Windows installer)
         if: matrix.os == 'windows-latest'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ needs.check-version.outputs.new_version }}
           files: syncplay_${{ needs.check-version.outputs.new_version }}_x64-setup.exe

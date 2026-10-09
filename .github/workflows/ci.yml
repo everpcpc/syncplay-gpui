@@ -21,7 +21,7 @@ jobs:
       RUSTC_WRAPPER: "sccache"
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
@@ -29,7 +29,7 @@ jobs:
         components: rustfmt, clippy
 
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.9
+      uses: mozilla-actions/sccache-action@v0.0.11
 
     - name: Install dependencies (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
