@@ -709,7 +709,10 @@ impl Render for PlaylistPanel {
                 div()
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .p_4()
+                    .h(px(64.))
+                    .px_4()
+                    .flex()
+                    .items_center()
                     .child(self.render_footer(cx)),
             )
     }
