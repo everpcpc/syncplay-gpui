@@ -241,6 +241,7 @@ impl Render for UserListPanel {
         v_flex()
             .size_full()
             .min_h_0()
+            .p_5()
             .gap_2()
             .child(self.render_header(cx))
             .when_some(empty_hint.clone(), |this, hint| {
