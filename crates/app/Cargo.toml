@@ -1,6 +1,6 @@
 [package]
 name = "syncplay"
-version = "0.10.10"
+version = "0.11.0"
 description = "Syncplay desktop client"
 authors = ["everpcpc"]
 license = "Apache-2.0"
