@@ -6,12 +6,12 @@ use crate::users::UserListPanel;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
+use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, TitleBar, WindowExt as _};
 use gpui_kit::{
-    div, prelude::FluentBuilder as _, px, relative, AnyElement, AppContext as _, Context, Entity,
-    IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription, Task,
-    Window,
+    div, prelude::FluentBuilder as _, px, relative, AppContext as _, Context, Entity, IntoElement,
+    ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription, Task, Window,
 };
 
 pub struct RootView {
@@ -195,11 +195,9 @@ impl RootView {
         }
     }
 
-    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.read(cx);
         let connected = store.is_connected();
-        let show_tls = connected && store.tls_status == "enabled";
-        let rtt = store.rtt_ms.filter(|_| connected);
         let show_playlist = store.config.user.show_playlist;
         let light_theme = store.config.user.theme == "light";
 
@@ -214,11 +212,49 @@ impl RootView {
             IconName::ListMinus
         };
 
+        let connect_button = if connected {
+            Button::new("open-connection")
+                .ghost()
+                .small()
+                .icon(IconName::Link2)
+                .tooltip("Connected")
+                .text_color(cx.theme().info)
+        } else {
+            Button::new("open-connection")
+                .primary()
+                .small()
+                .icon(IconName::Link2)
+                .label("Connect")
+        };
+
         h_flex()
             .w_full()
             .px_4()
             .justify_between()
-            .child(self.render_player_status(cx))
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .size_6()
+                            .rounded(cx.theme().radius)
+                            .bg(cx.theme().info.opacity(0.15))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                Icon::new(IconName::MonitorPlay)
+                                    .small()
+                                    .text_color(cx.theme().info),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                            .child("Syncplay"),
+                    ),
+            )
             .child(
                 h_flex()
                     .gap_1()
@@ -246,56 +282,10 @@ impl RootView {
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_theme(cx))),
                     )
-                    .when_some(rtt, |this, rtt| {
-                        this.child(
-                            h_flex()
-                                .gap_1()
-                                .px_2()
-                                .rounded_full()
-                                .bg(cx.theme().muted)
-                                .child(
-                                    Icon::new(IconName::Zap)
-                                        .small()
-                                        .text_color(cx.theme().muted_foreground),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .child(format!("{}ms", rtt.max(0.).round() as i64)),
-                                ),
-                        )
-                    })
-                    .when(show_tls, |this| {
-                        this.child(
-                            div()
-                                .p_1()
-                                .rounded(cx.theme().radius)
-                                .bg(cx.theme().muted)
-                                .child(
-                                    Icon::new(IconName::Lock)
-                                        .small()
-                                        .text_color(cx.theme().muted_foreground),
-                                ),
-                        )
-                    })
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(concat!("v", env!("CARGO_PKG_VERSION"))),
-                    )
-                    .child(
-                        Button::new("open-connection")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Link2)
-                            .tooltip("Connect")
-                            .when(connected, |button| button.text_color(cx.theme().info))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_connection_dialog(window, cx)
-                            })),
-                    )
+                    .child(div().w(px(1.)).h_4().bg(cx.theme().border))
+                    .child(connect_button.on_click(
+                        cx.listener(|this, _, window, cx| this.open_connection_dialog(window, cx)),
+                    ))
                     .child(
                         Button::new("open-settings")
                             .ghost()
@@ -313,150 +303,244 @@ impl RootView {
             )
     }
 
-    fn render_player_status(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_playback_header(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let store = self.store.read(cx);
         if !store.is_connected() {
-            return div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("Not connected")
-                .into_any_element();
+            return None;
         }
 
         let player = &store.player;
         let paused = player.paused.unwrap_or(true);
         let filename = player.filename.clone();
+        let has_media = filename.is_some();
         let position = player.position;
         let duration = player.duration;
         let speed = player.speed;
-        let offset = store.sync_offset_seconds.filter(|_| filename.is_some());
-
-        let icon_bg = if paused {
-            cx.theme().muted
-        } else {
-            cx.theme().info.opacity(0.15)
-        };
-        let icon_color = if paused {
-            cx.theme().warning
-        } else {
-            cx.theme().info
-        };
-
-        h_flex()
-            .gap_3()
-            .min_w_0()
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .size_7()
-                    .rounded(cx.theme().radius)
-                    .bg(icon_bg)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        Icon::new(if paused {
-                            IconName::Pause
-                        } else {
-                            IconName::Play
-                        })
-                        .small()
-                        .text_color(icon_color),
-                    ),
-            )
-            .when(position.is_some() && duration.is_some(), |this| {
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .font_family(cx.theme().mono_font_family.clone())
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .child(
-                                    div()
-                                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                        .child(format_time(position)),
-                                )
-                                .child(
-                                    div()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(format!("/ {}", format_time(duration))),
-                                ),
-                        ),
-                )
-            })
-            .child(
-                div()
-                    .min_w_0()
-                    .max_w(px(280.))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_sm()
-                    .font_weight(gpui_kit::FontWeight::MEDIUM)
-                    .child(display_filename(filename.as_deref())),
-            )
-            .when_some(offset, |this, offset| {
-                let absolute = offset.abs();
-                let in_sync = absolute < 1.0;
-                let (label, color, bg) = if in_sync {
-                    (
-                        "in sync".to_string(),
-                        cx.theme().success,
-                        cx.theme().success.opacity(0.15),
-                    )
-                } else {
-                    let label = if absolute >= 10.0 {
-                        format!("{absolute:.0}")
-                    } else {
-                        format!("{absolute:.1}")
-                    };
-                    let direction = if offset < 0.0 { "behind" } else { "ahead" };
-                    (
-                        format!("{direction} {label}s"),
-                        cx.theme().warning,
-                        cx.theme().warning.opacity(0.15),
-                    )
-                };
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .px_2()
-                        .rounded_full()
-                        .text_color(color)
-                        .bg(bg)
-                        .child(label),
-                )
-            })
-            .when_some(speed.filter(|speed| *speed != 1.0), |this, speed| {
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .text_xs()
-                        .text_color(cx.theme().warning)
-                        .child(format!("{speed:.2}x")),
-                )
-            })
-            .into_any_element()
-    }
-
-    fn render_progress(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let store = self.store.read(cx);
-        let fraction = match (store.player.position, store.player.duration) {
+        let offset = store.sync_offset_seconds.filter(|_| has_media);
+        let progress = match (position, duration) {
             (Some(position), Some(duration)) if duration > 0.0 => {
                 (position / duration).clamp(0.0, 1.0) as f32
             }
-            _ => return None,
+            _ => 0.0,
         };
+
+        // Without a local file the room's global playstate can still leak a
+        // position/paused projection into the store; the header treats that
+        // as idle instead of showing phantom playback.
+        let (icon_bg, icon_color, state_icon) = if !has_media {
+            (
+                cx.theme().muted,
+                cx.theme().muted_foreground,
+                IconName::Play,
+            )
+        } else if paused {
+            (cx.theme().muted, cx.theme().warning, IconName::Pause)
+        } else {
+            (
+                cx.theme().info.opacity(0.15),
+                cx.theme().info,
+                IconName::Play,
+            )
+        };
+
         Some(
-            div()
-                .h(px(2.))
+            v_flex()
                 .w_full()
-                .child(div().h_full().w(relative(fraction)).bg(cx.theme().info)),
+                .border_b_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().sidebar)
+                .child(
+                    h_flex()
+                        .w_full()
+                        .px_5()
+                        .pt_3()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .size_9()
+                                .rounded(cx.theme().radius_lg)
+                                .bg(icon_bg)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(Icon::new(state_icon).text_color(icon_color)),
+                        )
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .text_sm()
+                                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                        .when(!has_media, |this| {
+                                            this.text_color(cx.theme().muted_foreground)
+                                        })
+                                        .child(display_filename(filename.as_deref())),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(if has_media {
+                                            format!(
+                                                "{} / {}",
+                                                format_time(position),
+                                                format_time(duration)
+                                            )
+                                        } else {
+                                            "--:-- / --:--".to_string()
+                                        }),
+                                ),
+                        )
+                        .child(
+                            h_flex()
+                                .flex_shrink_0()
+                                .gap_2()
+                                .when_some(offset, |this, offset| {
+                                    let absolute = offset.abs();
+                                    let in_sync = absolute < 1.0;
+                                    let (label, color) = if in_sync {
+                                        ("in sync".to_string(), cx.theme().success)
+                                    } else {
+                                        let label = if absolute >= 10.0 {
+                                            format!("{absolute:.0}")
+                                        } else {
+                                            format!("{absolute:.1}")
+                                        };
+                                        let direction =
+                                            if offset < 0.0 { "behind" } else { "ahead" };
+                                        (format!("{direction} {label}s"), cx.theme().warning)
+                                    };
+                                    this.child(
+                                        div()
+                                            .text_xs()
+                                            .px_2()
+                                            .rounded_full()
+                                            .text_color(color)
+                                            .bg(color.opacity(0.15))
+                                            .child(label),
+                                    )
+                                })
+                                .when_some(speed.filter(|speed| *speed != 1.0), |this, speed| {
+                                    this.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(cx.theme().warning)
+                                            .child(format!("{speed:.2}x")),
+                                    )
+                                }),
+                        ),
+                )
+                .child(
+                    div().px_5().pt_2().pb_2p5().child(
+                        div()
+                            .h(px(3.))
+                            .w_full()
+                            .rounded_full()
+                            .bg(cx.theme().muted)
+                            .when(has_media, |this| {
+                                this.child(
+                                    div()
+                                        .h_full()
+                                        .rounded_full()
+                                        .w(relative(progress))
+                                        .bg(cx.theme().info),
+                                )
+                            }),
+                    ),
+                ),
         )
+    }
+
+    fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let store = self.store.read(cx);
+        let connected = store.is_connected();
+        let server = store.connection.server.clone();
+        let rtt = store.rtt_ms.filter(|_| connected);
+        let show_tls = connected && store.tls_status == "enabled";
+        let indexing = store.media_index_refreshing;
+
+        let status_text: SharedString = match (connected, server) {
+            (true, Some(server)) => format!("Connected to {server}").into(),
+            (true, None) => "Connected".into(),
+            (false, _) => "Not connected".into(),
+        };
+
+        StatusBar::new()
+            .left(
+                h_flex()
+                    .gap_2()
+                    .child(div().size_2().rounded_full().bg(if connected {
+                        cx.theme().success
+                    } else {
+                        cx.theme().muted_foreground
+                    }))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(status_text),
+                    )
+                    .when(indexing, |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("· Indexing media…"),
+                        )
+                    }),
+            )
+            .right(
+                h_flex()
+                    .gap_3()
+                    .when_some(rtt, |this, rtt| {
+                        this.child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    Icon::new(IconName::Wifi)
+                                        .xsmall()
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(format!("{}ms", rtt.max(0.).round() as i64)),
+                                ),
+                        )
+                    })
+                    .when(show_tls, |this| {
+                        this.child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    Icon::new(IconName::Lock)
+                                        .xsmall()
+                                        .text_color(cx.theme().muted_foreground),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("TLS"),
+                                ),
+                        )
+                    })
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(concat!("v", env!("CARGO_PKG_VERSION"))),
+                    ),
+            )
     }
 
     fn render_side_column(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -523,8 +607,8 @@ impl Render for RootView {
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(TitleBar::new().child(self.render_header(cx)))
-            .children(self.render_progress(cx))
+            .child(TitleBar::new().child(self.render_titlebar(cx)))
+            .children(self.render_playback_header(cx))
             .child(
                 div().flex_1().min_h_0().child(
                     h_resizable("main-split")
@@ -552,6 +636,7 @@ impl Render for RootView {
                         ),
                 ),
             )
+            .child(self.render_status_bar(cx))
     }
 }
 

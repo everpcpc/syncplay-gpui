@@ -1,9 +1,10 @@
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _};
+use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use gpui_kit::{
     div, px, AnyElement, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _,
     Render, SharedString, Styled as _, Subscription, Window,
@@ -190,11 +191,22 @@ impl Render for ChatPanel {
 
         let displayed = self.displayed.clone();
         let messages_view: AnyElement = if displayed.is_empty() {
-            div()
+            v_flex()
                 .size_full()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(self.empty_hint(cx))
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .child(
+                    Icon::new(IconName::MessageSquare)
+                        .small()
+                        .text_color(cx.theme().muted_foreground),
+                )
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.empty_hint(cx)),
+                )
                 .into_any_element()
         } else {
             MessageScroller::new("chat-messages", self.scroller.clone(), move |ix, _, cx| {
