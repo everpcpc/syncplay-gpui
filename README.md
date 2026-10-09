@@ -56,10 +56,19 @@ Cargo workspace with two crates:
 
 This client is compatible with Syncplay protocol version 1.7.x and can connect to official Syncplay servers.
 
+## Installation
+
+Prebuilt packages are attached to each [release](https://github.com/everpcpc/syncplay-gpui/releases):
+
+- **macOS**: signed and notarized `Syncplay` DMGs for Apple silicon (`aarch64`) and Intel (`x64`)
+- **Windows**: a per-user NSIS installer (`x64-setup.exe`, no admin required)
+- **Linux / portable**: raw binary archives (`tar.gz` / `zip`) that the in-app updater also consumes
+
+The app can update itself from the status bar (or automatically on startup) using the GitHub releases feed.
+
 ## Notes
 
-- The auto-updater from the previous Tauri-based build is not yet available in the gpui rewrite; check the releases page manually for new versions.
-- Release binaries are currently unsigned (no code signing / notarization).
+- macOS releases are Developer ID signed and notarized; Windows binaries are unsigned, so SmartScreen may warn on first run.
 
 ## License
 
