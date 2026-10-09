@@ -192,7 +192,6 @@ impl Render for ChatPanel {
         let messages_view: AnyElement = if displayed.is_empty() {
             div()
                 .size_full()
-                .p_5()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .child(self.empty_hint(cx))
@@ -210,24 +209,29 @@ impl Render for ChatPanel {
         v_flex()
             .size_full()
             .child(
-                div().border_b_1().border_color(cx.theme().border).child(
-                    TabBar::new("chat-filter")
-                        .underline()
-                        .selected_index(self.filter.index())
-                        .children([
-                            Tab::new().label("All"),
-                            Tab::new().label("Chat"),
-                            Tab::new().label("Events"),
-                        ])
-                        .on_click(cx.listener(|this, ix, _, cx| this.set_filter(*ix, cx))),
-                ),
+                div()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .px_5()
+                    .pt_2()
+                    .child(
+                        TabBar::new("chat-filter")
+                            .underline()
+                            .selected_index(self.filter.index())
+                            .children([
+                                Tab::new().label("All"),
+                                Tab::new().label("Chat"),
+                                Tab::new().label("Events"),
+                            ])
+                            .on_click(cx.listener(|this, ix, _, cx| this.set_filter(*ix, cx))),
+                    ),
             )
-            .child(div().flex_1().min_h_0().child(messages_view))
+            .child(div().flex_1().min_h_0().px_5().pt_4().child(messages_view))
             .child(
                 div()
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .p_3()
+                    .p_4()
                     .child(Input::new(&self.input).disabled(!input_enabled)),
             )
     }

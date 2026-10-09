@@ -11,10 +11,9 @@ mod users;
 use std::sync::Arc;
 
 use gpui_kit::component::TitleBar;
-use gpui_kit::{px, size, AppContext as _, WindowBackgroundAppearance, WindowBounds};
+use gpui_kit::{px, size, AppContext as _, WindowBounds};
 use syncplay_core::app_state::AppState;
 use syncplay_core::config::load_config;
-use syncplay_core::config::settings::TransparencyMode;
 use syncplay_core::player::controller::spawn_player_state_loop;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -75,7 +74,6 @@ fn main() {
     }));
 
     let theme = config.user.theme.clone();
-    let transparency = config.user.transparency_mode.clone();
     let window_size = match (config.user.window_width, config.user.window_height) {
         (Some(width), Some(height)) if width > 0 && height > 0 => {
             size(px(width as f32), px(height as f32))
@@ -94,10 +92,6 @@ fn main() {
             if let Some(titlebar) = window_options.titlebar.as_mut() {
                 titlebar.title = Some("Syncplay".into());
             }
-            // gpui fixes the window background at creation time, so
-            // transparency changes from the header only persist to the next
-            // launch; see RootView::cycle_transparency.
-            window_options.window_background = window_background_for(&transparency);
 
             gpui_kit::open_window(window_options, cx, |window, cx| {
                 let store = cx.new(|cx| {
@@ -122,17 +116,4 @@ fn main() {
             })
             .detach();
         });
-}
-
-#[cfg(target_os = "macos")]
-fn window_background_for(mode: &TransparencyMode) -> WindowBackgroundAppearance {
-    match mode {
-        TransparencyMode::Off => WindowBackgroundAppearance::Opaque,
-        TransparencyMode::Low | TransparencyMode::High => WindowBackgroundAppearance::Blurred,
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn window_background_for(_mode: &TransparencyMode) -> WindowBackgroundAppearance {
-    WindowBackgroundAppearance::Opaque
 }

@@ -1,3 +1,8 @@
+use crate::chat::ChatPanel;
+use crate::connection::ConnectionDialog;
+use crate::playlist::PlaylistPanel;
+use crate::store::{AppStore, ConnectParams};
+use crate::users::UserListPanel;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
@@ -8,13 +13,6 @@ use gpui_kit::{
     IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription, Task,
     Window,
 };
-use syncplay_core::config::settings::TransparencyMode;
-
-use crate::chat::ChatPanel;
-use crate::connection::ConnectionDialog;
-use crate::playlist::PlaylistPanel;
-use crate::store::{AppStore, ConnectParams};
-use crate::users::UserListPanel;
 
 pub struct RootView {
     store: Entity<AppStore>,
@@ -104,16 +102,6 @@ impl RootView {
             "dark".to_string()
         } else {
             "light".to_string()
-        };
-        self.store.read(cx).update_config(config);
-    }
-
-    fn cycle_transparency(&self, cx: &mut Context<Self>) {
-        let mut config = self.store.read(cx).config.clone();
-        config.user.transparency_mode = match config.user.transparency_mode {
-            TransparencyMode::Off => TransparencyMode::Low,
-            TransparencyMode::Low => TransparencyMode::High,
-            TransparencyMode::High => TransparencyMode::Off,
         };
         self.store.read(cx).update_config(config);
     }
@@ -214,17 +202,11 @@ impl RootView {
         let rtt = store.rtt_ms.filter(|_| connected);
         let show_playlist = store.config.user.show_playlist;
         let light_theme = store.config.user.theme == "light";
-        let transparency = store.config.user.transparency_mode.clone();
 
         let theme_icon = if light_theme {
             IconName::Sun
         } else {
             IconName::Moon
-        };
-        let (transparency_icon, transparency_tip) = match transparency {
-            TransparencyMode::Off => (IconName::Contrast, "Transparency off"),
-            TransparencyMode::Low => (IconName::Droplet, "Transparency low"),
-            TransparencyMode::High => (IconName::Droplets, "Transparency high"),
         };
         let playlist_icon = if show_playlist {
             IconName::ListMusic
@@ -242,7 +224,7 @@ impl RootView {
                     .child(
                         Button::new("toggle-playlist")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(playlist_icon)
                             .tooltip(if show_playlist {
                                 "Playlist shown"
@@ -254,7 +236,7 @@ impl RootView {
                     .child(
                         Button::new("toggle-theme")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(theme_icon)
                             .tooltip(if light_theme {
                                 "Theme light"
@@ -262,14 +244,6 @@ impl RootView {
                                 "Theme dark"
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_theme(cx))),
-                    )
-                    .child(
-                        Button::new("toggle-transparency")
-                            .ghost()
-                            .xsmall()
-                            .icon(transparency_icon)
-                            .tooltip(transparency_tip)
-                            .on_click(cx.listener(|this, _, _, cx| this.cycle_transparency(cx))),
                     )
                     .when_some(rtt, |this, rtt| {
                         this.child(
@@ -280,7 +254,7 @@ impl RootView {
                                 .bg(cx.theme().muted)
                                 .child(
                                     Icon::new(IconName::Zap)
-                                        .xsmall()
+                                        .small()
                                         .text_color(cx.theme().muted_foreground),
                                 )
                                 .child(
@@ -299,7 +273,7 @@ impl RootView {
                                 .bg(cx.theme().muted)
                                 .child(
                                     Icon::new(IconName::Lock)
-                                        .xsmall()
+                                        .small()
                                         .text_color(cx.theme().muted_foreground),
                                 ),
                         )
@@ -313,7 +287,7 @@ impl RootView {
                     .child(
                         Button::new("open-connection")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Link2)
                             .tooltip("Connect")
                             .when(connected, |button| button.text_color(cx.theme().info))
@@ -324,7 +298,7 @@ impl RootView {
                     .child(
                         Button::new("open-settings")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Settings)
                             .tooltip("Settings")
                             .on_click(cx.listener(|this, _, window, cx| {

@@ -51,7 +51,7 @@ impl UserListPanel {
         let user_count = store.users.len();
 
         let ready_button = Button::new("toggle-ready")
-            .xsmall()
+            .small()
             .icon(if is_ready {
                 IconName::Check
             } else {
@@ -106,7 +106,7 @@ impl UserListPanel {
                     .child(
                         Button::new("open-rooms")
                             .secondary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::PencilLine)
                             .tooltip("Rooms")
                             .on_click(cx.listener(|this, _, window, cx| {

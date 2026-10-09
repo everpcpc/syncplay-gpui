@@ -308,7 +308,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("add-playlist-item")
                             .primary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Plus)
                             .tooltip("Add")
                             .disabled(!connected)
@@ -319,7 +319,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("clear-playlist")
                             .danger()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Trash)
                             .tooltip("Clear")
                             .disabled(!connected || item_count == 0)
@@ -334,7 +334,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("open-trusted-domains")
                             .secondary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Shield)
                             .tooltip("Trusted domains")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -344,7 +344,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("refresh-media-index")
                             .secondary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::RefreshCw)
                             .tooltip(scan_tooltip)
                             .disabled(refreshing)
@@ -355,7 +355,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("open-media-directories")
                             .secondary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Folder)
                             .tooltip("Media directories")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -500,7 +500,7 @@ impl PlaylistPanel {
                         .child(
                             Button::new(("play-item", ix))
                                 .secondary()
-                                .xsmall()
+                                .small()
                                 .icon(IconName::Play)
                                 .tooltip("Play")
                                 .disabled(!connected || !available)
@@ -511,7 +511,7 @@ impl PlaylistPanel {
                         .child(
                             Button::new(("remove-item", ix))
                                 .secondary()
-                                .xsmall()
+                                .small()
                                 .icon(IconName::Trash)
                                 .tooltip("Remove")
                                 .text_color(cx.theme().danger)
@@ -558,7 +558,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("playlist-previous")
                             .secondary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::ChevronLeft)
                             .tooltip("Previous")
                             .disabled(previous_disabled)
@@ -569,7 +569,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("playlist-next")
                             .secondary()
-                            .xsmall()
+                            .small()
                             .icon(IconName::ChevronRight)
                             .tooltip("Next")
                             .disabled(next_disabled)
@@ -584,7 +584,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("toggle-shared-playlist")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Users)
                             .tooltip(if shared_enabled {
                                 "Shared playlists on"
@@ -601,7 +601,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("toggle-loop-playlist")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Repeat)
                             .tooltip(if loop_playlist {
                                 "Loop playlist on"
@@ -618,7 +618,7 @@ impl PlaylistPanel {
                     .child(
                         Button::new("toggle-loop-single")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Repeat1)
                             .tooltip(if loop_single {
                                 "Loop file on"
@@ -648,7 +648,7 @@ impl Render for PlaylistPanel {
             .v_flex()
             .flex_1()
             .min_h_0()
-            .p_2()
+            .p_4()
             .gap_2()
             .on_drag_move(cx.listener(Self::on_drag_move))
             .on_drop(cx.listener(Self::on_drop))
@@ -662,7 +662,7 @@ impl Render for PlaylistPanel {
                 div()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .p_3()
+                    .p_4()
                     .child(self.render_header(cx)),
             )
             .child(
@@ -709,7 +709,7 @@ impl Render for PlaylistPanel {
                 div()
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .p_3()
+                    .p_4()
                     .child(self.render_footer(cx)),
             )
     }
