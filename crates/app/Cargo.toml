@@ -4,7 +4,7 @@ version = "0.11.0"
 description = "Syncplay desktop client"
 authors = ["everpcpc"]
 license = "Apache-2.0"
-repository = "https://github.com/everpcpc/syncplay-tauri"
+repository = "https://github.com/everpcpc/syncplay-gpui"
 edition = "2021"
 
 [[bin]]
