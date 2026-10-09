@@ -162,7 +162,7 @@ impl RootView {
         let mut config = store.config.clone();
         let mut changed = false;
 
-        if let Some(width) = self.main_split.read(cx).sizes().get(1) {
+        if let Some(width) = self.main_split.read(cx).sizes().first() {
             let width = f32::from(*width).round() as u32;
             if width > 0 && config.user.side_column_width != Some(width) {
                 config.user.side_column_width = Some(width);
@@ -212,9 +212,9 @@ impl RootView {
             IconName::Moon
         };
         let playlist_icon = if show_playlist {
-            IconName::ListMusic
+            IconName::PanelLeftClose
         } else {
-            IconName::ListMinus
+            IconName::PanelLeftOpen
         };
 
         let connect_button = if connected {
@@ -269,9 +269,9 @@ impl RootView {
                             .small()
                             .icon(playlist_icon)
                             .tooltip(if show_playlist {
-                                "Playlist shown"
+                                "Hide playlist"
                             } else {
-                                "Playlist hidden"
+                                "Show playlist"
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_playlist(cx))),
                     )
@@ -353,60 +353,42 @@ impl RootView {
                 .w_full()
                 .border_b_1()
                 .border_color(cx.theme().border)
-                .bg(cx.theme().sidebar)
                 .child(
                     h_flex()
                         .w_full()
-                        .px_5()
-                        .pt_3()
-                        .gap_3()
+                        .px_6()
+                        .pt_4()
+                        .gap_4()
                         .child(
                             div()
                                 .flex_shrink_0()
-                                .size_9()
+                                .size_11()
                                 .rounded(cx.theme().radius_lg)
                                 .bg(icon_bg)
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(Icon::new(state_icon).text_color(icon_color)),
+                                .child(Icon::new(state_icon).large().text_color(icon_color)),
                         )
                         .child(
-                            v_flex()
+                            div()
                                 .flex_1()
                                 .min_w_0()
-                                .child(
-                                    div()
-                                        .overflow_hidden()
-                                        .whitespace_nowrap()
-                                        .text_ellipsis()
-                                        .text_sm()
-                                        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                        .when(!has_media, |this| {
-                                            this.text_color(cx.theme().muted_foreground)
-                                        })
-                                        .child(display_filename(filename.as_deref())),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(if has_media {
-                                            format!(
-                                                "{} / {}",
-                                                format_time(position),
-                                                format_time(duration)
-                                            )
-                                        } else {
-                                            "--:-- / --:--".to_string()
-                                        }),
-                                ),
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .text_base()
+                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                .when(!has_media, |this| {
+                                    this.text_color(cx.theme().muted_foreground)
+                                })
+                                .child(display_filename(filename.as_deref())),
                         )
                         .child(
                             h_flex()
                                 .flex_shrink_0()
                                 .gap_2()
+                                .items_center()
                                 .when_some(offset, |this, offset| {
                                     let absolute = offset.abs();
                                     let in_sync = absolute < 1.0;
@@ -439,13 +421,28 @@ impl RootView {
                                             .text_color(cx.theme().warning)
                                             .child(format!("{speed:.2}x")),
                                     )
-                                }),
+                                })
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_family(cx.theme().mono_font_family.clone())
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(if has_media {
+                                            format!(
+                                                "{} / {}",
+                                                format_time(position),
+                                                format_time(duration)
+                                            )
+                                        } else {
+                                            "--:-- / --:--".to_string()
+                                        }),
+                                ),
                         ),
                 )
                 .child(
-                    div().px_5().pt_2().pb_2p5().child(
+                    div().px_6().pt_3().pb_4().child(
                         div()
-                            .h(px(3.))
+                            .h(px(6.))
                             .w_full()
                             .rounded_full()
                             .bg(cx.theme().muted)
@@ -455,12 +452,58 @@ impl RootView {
                                         .h_full()
                                         .rounded_full()
                                         .w(relative(progress))
-                                        .bg(cx.theme().info),
+                                        .bg(cx.theme().progress_bar),
                                 )
                             }),
                     ),
                 ),
         )
+    }
+
+    fn render_welcome(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .gap_3()
+            .child(
+                div()
+                    .size_16()
+                    .rounded(cx.theme().radius_lg)
+                    .bg(cx.theme().info.opacity(0.12))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        Icon::new(IconName::MonitorPlay)
+                            .with_size(px(32.))
+                            .text_color(cx.theme().info),
+                    ),
+            )
+            .child(
+                div()
+                    .pt_2()
+                    .text_lg()
+                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                    .child("Welcome to Syncplay"),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Connect to a server to watch together."),
+            )
+            .child(
+                div().pt_3().child(
+                    Button::new("welcome-connect")
+                        .primary()
+                        .icon(IconName::Link2)
+                        .label("Connect to Server")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_connection_dialog(window, cx)
+                        })),
+                ),
+            )
     }
 
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -623,9 +666,8 @@ impl RootView {
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Sidebar default: min(560, max(320, 36%)) of the window width, per
-        // the web client's layout constants; a persisted width wins, clamped
-        // so the chat panel keeps its 360px minimum.
+        // Sidebar default 280px; a persisted width wins, clamped so the main
+        // column keeps its 420px minimum.
         let viewport_width = window.viewport_size().width;
         let saved_width = self
             .store
@@ -635,9 +677,10 @@ impl Render for RootView {
             .side_column_width
             .map(|width| px(width as f32));
         let side_default = saved_width
-            .unwrap_or_else(|| (viewport_width * 0.36).max(px(320.)).min(px(560.)))
-            .max(px(320.))
-            .min((viewport_width - px(360.)).max(px(320.)));
+            .unwrap_or(px(280.))
+            .max(px(240.))
+            .min(px(480.))
+            .min((viewport_width - px(420.)).max(px(240.)));
 
         // While the playlist was hidden the users panel owned the whole
         // column; when it comes back the state still holds that full height,
@@ -651,13 +694,14 @@ impl Render for RootView {
             restore_primary_later(self.side_split.clone(), saved_primary, 4, window);
         }
 
+        let connected = self.store.read(cx).is_connected();
+
         let root = cx.entity();
         v_flex()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(TitleBar::new().child(self.render_titlebar(cx)))
-            .children(self.render_playback_header(cx))
             .child(
                 div().flex_1().min_h_0().child(
                     h_resizable("main-split")
@@ -667,21 +711,31 @@ impl Render for RootView {
                         })
                         .child(
                             resizable_panel()
-                                .size_range(px(360.)..Pixels::MAX)
-                                .child(self.chat.clone()),
-                        )
-                        .child(
-                            resizable_panel()
                                 .size(side_default)
-                                .size_range(px(320.)..Pixels::MAX)
+                                .size_range(px(240.)..px(480.))
                                 .flex_none()
                                 .child(
                                     div()
                                         .size_full()
-                                        .border_l_1()
-                                        .border_color(cx.theme().border)
+                                        .bg(cx.theme().sidebar)
+                                        .text_color(cx.theme().sidebar_foreground)
+                                        .border_r_1()
+                                        .border_color(cx.theme().sidebar_border)
                                         .child(self.render_side_column(cx)),
                                 ),
+                        )
+                        .child(
+                            resizable_panel().size_range(px(420.)..Pixels::MAX).child(
+                                v_flex()
+                                    .size_full()
+                                    .min_w_0()
+                                    .children(self.render_playback_header(cx))
+                                    .child(div().flex_1().min_h_0().child(if connected {
+                                        self.chat.clone().into_any_element()
+                                    } else {
+                                        self.render_welcome(cx).into_any_element()
+                                    })),
+                            ),
                         ),
                 ),
             )

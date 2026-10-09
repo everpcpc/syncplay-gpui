@@ -4,7 +4,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::{
-    div, hsla, prelude::FluentBuilder as _, px, white, App, AppContext as _, Context, Entity,
+    div, hsla, prelude::FluentBuilder as _, px, white, AppContext as _, Context, Entity,
     FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Subscription, Window,
 };
@@ -38,7 +38,7 @@ impl UserListPanel {
         });
     }
 
-    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_room_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.read(cx);
         let connected = store.is_connected();
         let current_username = store.config.user.username.clone();
@@ -48,40 +48,27 @@ impl UserListPanel {
             .find(|user| user.username == current_username);
         let is_ready = current_user.map(|user| user.is_ready).unwrap_or(false);
         let room = current_room(store);
-        let user_count = store.users.len();
 
-        let ready_button = Button::new("toggle-ready")
-            .small()
-            .icon(if is_ready {
-                IconName::Check
-            } else {
-                IconName::Circle
-            })
-            .tooltip(if is_ready { "Ready" } else { "Not ready" })
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.store.read(cx).set_ready(!is_ready);
-            }));
-        let ready_button = if is_ready {
-            ready_button.primary()
+        let subtitle: SharedString = if connected {
+            store
+                .connection
+                .server
+                .clone()
+                .unwrap_or_else(|| "Connected".to_string())
+                .into()
         } else {
-            ready_button.secondary()
+            "Not connected".into()
         };
 
         h_flex()
+            .w_full()
             .justify_between()
             .gap_2()
             .child(
-                h_flex()
-                    .gap_2()
+                v_flex()
                     .min_w_0()
                     .child(
-                        Icon::new(IconName::Users)
-                            .small()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(
                         div()
-                            .min_w_0()
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_ellipsis()
@@ -89,23 +76,41 @@ impl UserListPanel {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(room),
                     )
-                    .when(connected, |this| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(format!("({user_count})")),
-                        )
-                    }),
+                    .child(
+                        div()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(subtitle),
+                    ),
             )
             .child(
                 h_flex()
-                    .gap_2()
-                    .when(connected, |this| this.child(ready_button))
+                    .flex_shrink_0()
+                    .gap_1()
+                    .when(connected, |this| {
+                        let ready_button = Button::new("toggle-ready")
+                            .small()
+                            .icon(if is_ready {
+                                IconName::Check
+                            } else {
+                                IconName::CircleDashed
+                            })
+                            .tooltip(if is_ready { "Ready" } else { "Not ready" })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.store.read(cx).set_ready(!is_ready);
+                            }));
+                        this.child(if is_ready {
+                            ready_button.primary()
+                        } else {
+                            ready_button.secondary()
+                        })
+                    })
                     .child(
                         Button::new("open-rooms")
-                            .secondary()
+                            .ghost()
                             .small()
                             .icon(IconName::PencilLine)
                             .tooltip("Rooms")
@@ -116,7 +121,7 @@ impl UserListPanel {
             )
     }
 
-    fn render_user_card(
+    fn render_user_row(
         &self,
         user: &UserInfoEvent,
         self_user: Option<&UserInfoEvent>,
@@ -146,22 +151,23 @@ impl UserListPanel {
             cx.theme().muted_foreground
         };
 
-        v_flex()
-            .p_3()
+        h_flex()
+            .w_full()
+            .px_2()
+            .py_1p5()
+            .gap_2()
             .rounded(cx.theme().radius)
-            .bg(cx.theme().muted)
+            .child(render_avatar(&user.username))
             .child(
-                h_flex()
-                    .justify_between()
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
                     .child(
                         h_flex()
-                            .gap_2()
+                            .gap_1()
                             .min_w_0()
-                            .child(render_avatar(&user.username))
                             .child(
                                 div()
-                                    .flex_1()
-                                    .min_w_0()
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
@@ -169,49 +175,69 @@ impl UserListPanel {
                                     .text_sm()
                                     .child(user.username.clone()),
                             )
-                            .child(if user.is_ready {
-                                tag("Ready", cx.theme().success)
-                            } else {
-                                tag_muted("Not Ready", cx)
-                            })
-                            .when(is_self, |this| this.child(tag_accent("You", true, cx))),
+                            .when(is_self, |this| {
+                                this.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child("you"),
+                                )
+                            }),
                     )
-                    .when(user.is_controller, |this| {
-                        this.child(tag_accent("Controller", false, cx))
-                    }),
-            )
-            .when_some(user.file.clone(), |this, file| {
-                this.child(
-                    v_flex()
-                        .mt_1()
-                        .gap_1()
-                        .child(
+                    .when_some(user.file.clone(), |this, file| {
+                        this.child(
                             div()
-                                .text_xs()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .text_ellipsis()
+                                .text_xs()
                                 .text_color(name_color)
-                                .child(format!("File: {file}")),
+                                .child(file),
                         )
                         .child(
                             h_flex()
-                                .gap_2()
+                                .gap_1()
                                 .text_xs()
                                 .child(
-                                    div().text_color(size_color).child(format!(
-                                        "Size: {}",
-                                        format_file_size(&user.file_size)
-                                    )),
+                                    div()
+                                        .text_color(size_color)
+                                        .child(format_file_size(&user.file_size)),
                                 )
-                                .child(div().text_color(cx.theme().muted_foreground).child("/"))
-                                .child(div().text_color(duration_color).child(format!(
-                                    "Duration: {}",
-                                    format_duration(user.file_duration)
-                                ))),
-                        ),
-                )
-            })
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().muted_foreground.opacity(0.6))
+                                        .child("·"),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(duration_color)
+                                        .child(format_duration(user.file_duration)),
+                                ),
+                        )
+                    }),
+            )
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .when(user.is_controller, |this| {
+                        this.child(
+                            Icon::new(IconName::Crown)
+                                .small()
+                                .text_color(cx.theme().warning),
+                        )
+                    })
+                    .child(if user.is_ready {
+                        Icon::new(IconName::Check)
+                            .small()
+                            .text_color(cx.theme().success)
+                    } else {
+                        Icon::new(IconName::CircleDashed)
+                            .small()
+                            .text_color(cx.theme().muted_foreground.opacity(0.5))
+                    }),
+            )
     }
 }
 
@@ -221,6 +247,7 @@ impl Render for UserListPanel {
         let connected = store.is_connected();
         let current_username = store.config.user.username.clone();
         let room = current_room(store);
+        let user_count = store.users.len();
         let mut sorted = store.users.clone();
         let self_user = sorted
             .iter()
@@ -241,13 +268,35 @@ impl Render for UserListPanel {
         v_flex()
             .size_full()
             .min_h_0()
-            .p_5()
-            .gap_2()
-            .child(self.render_header(cx))
+            .child(div().px_3().pt_3().pb_1().child(self.render_room_card(cx)))
+            .child(
+                h_flex()
+                    .px_3()
+                    .pt_2()
+                    .pb_1()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(cx.theme().sidebar_foreground.opacity(0.65))
+                            .child("Users"),
+                    )
+                    .when(connected, |this| {
+                        this.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(format!("{user_count}")),
+                        )
+                    }),
+            )
             .when_some(empty_hint.clone(), |this, hint| {
                 this.child(
                     div()
-                        .text_sm()
+                        .px_3()
+                        .py_2()
+                        .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(hint),
                 )
@@ -259,11 +308,11 @@ impl Render for UserListPanel {
                         .v_flex()
                         .flex_1()
                         .min_h_0()
-                        .gap_2()
-                        .pr_1()
+                        .px_1()
+                        .pr_2()
                         .overflow_y_scrollbar()
                         .children(sorted.iter().map(|user| {
-                            self.render_user_card(
+                            self.render_user_row(
                                 user,
                                 self_user.as_ref(),
                                 &room,
@@ -277,8 +326,8 @@ impl Render for UserListPanel {
     }
 }
 
-/// Room shown in the panel header: the live room when connected, otherwise
-/// the configured default, matching the web client's fallback chain.
+/// Room shown in the room card: the live room when connected, otherwise the
+/// configured default, matching the web client's fallback chain.
 fn current_room(store: &AppStore) -> SharedString {
     let username = &store.config.user.username;
     store
@@ -298,7 +347,7 @@ fn current_room(store: &AppStore) -> SharedString {
 fn render_avatar(username: &str) -> impl IntoElement {
     // The chip hue is derived from the username, so it is a data color, not a
     // theme decision.
-    let hue = (avatar_hash(username) % 360) as f32 / 360.0;
+    let hue = username_hue(username);
     let initial: String = username
         .trim()
         .chars()
@@ -319,52 +368,24 @@ fn render_avatar(username: &str) -> impl IntoElement {
         .child(initial)
 }
 
-fn avatar_hash(username: &str) -> u32 {
+/// Per-user color for chat usernames; the hue matches the avatar so the same
+/// person reads as the same color across panels. Text needs more lightness on
+/// a dark background than the avatar chip does.
+pub(crate) fn username_color(username: &str, dark: bool) -> Hsla {
+    hsla(
+        username_hue(username),
+        0.62,
+        if dark { 0.68 } else { 0.42 },
+        1.0,
+    )
+}
+
+fn username_hue(username: &str) -> f32 {
     let mut hash: u32 = 0;
     for c in username.chars() {
         hash = hash.wrapping_mul(31).wrapping_add(c as u32);
     }
-    hash
-}
-
-fn tag(label: &'static str, color: Hsla) -> gpui_kit::Div {
-    div()
-        .flex_shrink_0()
-        .text_xs()
-        .px_2()
-        .rounded_full()
-        .border_1()
-        .border_color(color)
-        .bg(color.opacity(0.15))
-        .child(label)
-}
-
-fn tag_muted(label: &'static str, cx: &App) -> gpui_kit::Div {
-    div()
-        .flex_shrink_0()
-        .text_xs()
-        .px_2()
-        .rounded_full()
-        .border_1()
-        .border_color(cx.theme().border)
-        .bg(cx.theme().muted)
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
-}
-
-fn tag_accent(label: &'static str, pill: bool, cx: &App) -> gpui_kit::Div {
-    let this = div()
-        .flex_shrink_0()
-        .text_xs()
-        .px_2()
-        .border_1()
-        .border_color(cx.theme().info)
-        .bg(cx.theme().info.opacity(0.15));
-    if pill {
-        this.rounded_full().child(label)
-    } else {
-        this.rounded(cx.theme().radius).child(label)
-    }
+    (hash % 360) as f32 / 360.0
 }
 
 fn has_same_file_name(a: Option<&str>, b: Option<&str>) -> bool {

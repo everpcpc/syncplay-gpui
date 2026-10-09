@@ -190,6 +190,7 @@ impl Render for ChatPanel {
         row_style.padding.bottom = Some(px(2.).into());
 
         let displayed = self.displayed.clone();
+        let dark = self.store.read(cx).config.user.theme == "dark";
         let messages_view: AnyElement = if displayed.is_empty() {
             v_flex()
                 .size_full()
@@ -197,7 +198,7 @@ impl Render for ChatPanel {
                 .justify_center()
                 .gap_2()
                 .child(
-                    Icon::new(IconName::MessageSquare)
+                    Icon::new(IconName::MessageSquareText)
                         .small()
                         .text_color(cx.theme().muted_foreground),
                 )
@@ -210,7 +211,7 @@ impl Render for ChatPanel {
                 .into_any_element()
         } else {
             MessageScroller::new("chat-messages", self.scroller.clone(), move |ix, _, cx| {
-                render_message_row(&displayed[ix], cx)
+                render_message_row(&displayed[ix], dark, cx)
             })
             .with_jump_button_label("New messages")
             .with_jump_button_renderer(|button| button.label("New messages"))
@@ -224,11 +225,14 @@ impl Render for ChatPanel {
                 div()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .px_5()
-                    .pt_2()
+                    .h_11()
+                    .px_3()
+                    .flex()
+                    .items_center()
                     .child(
                         TabBar::new("chat-filter")
-                            .underline()
+                            .segmented()
+                            .small()
                             .selected_index(self.filter.index())
                             .children([
                                 Tab::new().label("All"),
@@ -238,15 +242,13 @@ impl Render for ChatPanel {
                             .on_click(cx.listener(|this, ix, _, cx| this.set_filter(*ix, cx))),
                     ),
             )
-            .child(div().flex_1().min_h_0().px_5().pt_4().child(messages_view))
+            .child(div().flex_1().min_h_0().px_4().pt_3().child(messages_view))
             .child(
                 div()
                     .border_t_1()
                     .border_color(cx.theme().border)
-                    .h(px(64.))
-                    .px_4()
-                    .flex()
-                    .items_center()
+                    .px_3()
+                    .py_3()
                     .child(Input::new(&self.input).disabled(!input_enabled)),
             )
     }
@@ -314,7 +316,7 @@ fn format_timestamp(timestamp: &str) -> SharedString {
         .unwrap_or_else(|_| timestamp.into())
 }
 
-fn render_message_row(message: &DisplayMessage, cx: &App) -> AnyElement {
+fn render_message_row(message: &DisplayMessage, dark: bool, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let is_jumped = message
         .collapse_key
@@ -336,11 +338,12 @@ fn render_message_row(message: &DisplayMessage, cx: &App) -> AnyElement {
                 .child(format_timestamp(&message.timestamp)),
         )
         .when_some(message.username.clone(), |this, username| {
+            let color = crate::users::username_color(&username, dark);
             this.child(
                 div()
                     .flex_shrink_0()
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(theme.info)
+                    .text_color(color)
                     .child(format!("{username}:")),
             )
         });

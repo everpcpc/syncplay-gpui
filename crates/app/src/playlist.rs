@@ -5,6 +5,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::tooltip::Tooltip;
@@ -14,13 +15,24 @@ use gpui_kit::component::{
     WindowExt as _,
 };
 use gpui_kit::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, Bounds, Context, DragMoveEvent,
-    Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render,
-    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    actions, div, prelude::FluentBuilder as _, px, Anchor, App, AppContext as _, Bounds, Context,
+    DragMoveEvent, Entity, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
+    ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window,
 };
 use syncplay_core::config::SyncplayConfig;
 
 use crate::store::AppStore;
+
+actions!(
+    syncplay,
+    [
+        ScanMediaDirectory,
+        OpenMediaDirectories,
+        OpenTrustedDomains,
+        ClearPlaylist
+    ]
+);
 
 const VIDEO_EXTENSIONS: [&str; 20] = [
     "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "ts", "m2ts", "mts",
@@ -63,6 +75,9 @@ pub struct PlaylistPanel {
     store: Entity<AppStore>,
     media_directories: Entity<MediaDirectoriesDialog>,
     trusted_domains: Entity<TrustedDomainsDialog>,
+    /// Focus target for dropdown-menu action dispatch; the panel root tracks
+    /// it so menu items reach the `on_action` handlers there.
+    menu_focus: FocusHandle,
     /// Fallback directory for the next add-file picker; the web client keeps
     /// this in localStorage, in-memory covers the same session habit.
     last_add_directory: Option<String>,
@@ -84,6 +99,7 @@ impl PlaylistPanel {
             store,
             media_directories,
             trusted_domains,
+            menu_focus: cx.focus_handle(),
             last_add_directory: None,
             hovered_row: None,
             drag_target: None,
@@ -266,102 +282,59 @@ impl PlaylistPanel {
         let connected = store.is_connected();
         let item_count = store.playlist.items.len();
         let refreshing = store.media_index_refreshing;
-        let scan_label = if refreshing {
-            "Scanning media directory"
-        } else {
-            "Scan media directory"
-        };
-        let scan_tooltip = format!(
-            "{scan_label} (Last scan: {})",
+        let scan_label = format!(
+            "Scan Media Directory (last: {})",
             format_last_scan(store.media_index_version)
         );
 
+        let menu_focus = self.menu_focus.clone();
         h_flex()
             .w_full()
-            .justify_between()
-            .gap_2()
+            .px_3()
+            .pt_2()
+            .pb_1()
+            .gap_1()
             .child(
-                h_flex()
-                    .gap_2()
-                    .flex_shrink_0()
-                    .child(
-                        Icon::new(IconName::ListMusic)
-                            .small()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Playlist"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("({item_count})")),
-                    ),
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(cx.theme().sidebar_foreground.opacity(0.65))
+                    .child(format!("Playlist · {item_count}")),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("add-playlist-item")
-                            .primary()
-                            .small()
-                            .icon(IconName::Plus)
-                            .tooltip("Add")
-                            .disabled(!connected)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.handle_add_file(window, cx)),
-                            ),
-                    )
-                    .child(
-                        Button::new("clear-playlist")
-                            .danger()
-                            .small()
-                            .icon(IconName::Trash)
-                            .tooltip("Clear")
-                            .disabled(!connected || item_count == 0)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.store.read(cx).update_playlist("clear", None, None);
-                            })),
-                    ),
+                Button::new("add-playlist-item")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Plus)
+                    .tooltip("Add file")
+                    .disabled(!connected)
+                    .on_click(cx.listener(|this, _, window, cx| this.handle_add_file(window, cx))),
             )
             .child(
-                h_flex()
-                    .gap_2()
-                    .child(
-                        Button::new("open-trusted-domains")
-                            .secondary()
-                            .small()
-                            .icon(IconName::Shield)
-                            .tooltip("Trusted domains")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_trusted_domains(window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("refresh-media-index")
-                            .secondary()
-                            .small()
-                            .icon(IconName::RefreshCw)
-                            .tooltip(scan_tooltip)
-                            .disabled(refreshing)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.store.read(cx).refresh_media_index();
-                            })),
-                    )
-                    .child(
-                        Button::new("open-media-directories")
-                            .secondary()
-                            .small()
-                            .icon(IconName::Folder)
-                            .tooltip("Media directories")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_media_directories(window, cx)
-                            })),
-                    ),
+                Button::new("playlist-menu")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Ellipsis)
+                    .tooltip("Playlist actions")
+                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+                        menu.action_context(menu_focus.clone())
+                            .menu_with_disabled(
+                                scan_label.clone(),
+                                Box::new(ScanMediaDirectory),
+                                refreshing,
+                            )
+                            .separator()
+                            .menu("Media Directories…", Box::new(OpenMediaDirectories))
+                            .menu("Trusted Domains…", Box::new(OpenTrustedDomains))
+                            .separator()
+                            .menu_with_disabled(
+                                "Clear Playlist",
+                                Box::new(ClearPlaylist),
+                                !connected || item_count == 0,
+                            )
+                    }),
             )
     }
 
@@ -395,18 +368,26 @@ impl PlaylistPanel {
             .h_flex()
             .w_full()
             .gap_2()
-            .p_2()
+            .px_2()
+            .h_8()
             .rounded(cx.theme().radius)
-            .border_1()
             .text_sm()
-            .child(
-                Icon::new(IconName::Film)
-                    .small()
+            .child(if current {
+                div().flex_shrink_0().w_4().child(
+                    Icon::new(IconName::CirclePlay)
+                        .small()
+                        .text_color(cx.theme().info),
+                )
+            } else {
+                div()
                     .flex_shrink_0()
+                    .w_4()
+                    .text_xs()
+                    .text_right()
+                    .font_family(cx.theme().mono_font_family.clone())
                     .text_color(cx.theme().muted_foreground)
-                    .when(current, |this| this.text_color(cx.theme().info))
-                    .when(!available, |this| this.opacity(0.5)),
-            )
+                    .child(format!("{}", ix + 1))
+            })
             .child(
                 div()
                     .flex_1()
@@ -423,7 +404,6 @@ impl PlaylistPanel {
                     })
                     .child(item.to_string()),
             )
-            .when(current, |this| this.child(accent_tag("Playing", cx)))
             .when(!available, |this| {
                 this.child(
                     div()
@@ -470,11 +450,11 @@ impl PlaylistPanel {
         let content = content
             .map(|this| {
                 if current {
-                    this.bg(cx.theme().muted)
-                        .border_color(cx.theme().info.opacity(0.5))
+                    this.bg(cx.theme().sidebar_accent)
+                } else if hovered {
+                    this.bg(cx.theme().sidebar_accent.opacity(0.6))
                 } else {
-                    this.bg(cx.theme().muted.opacity(0.6))
-                        .border_color(cx.theme().transparent)
+                    this
                 }
             })
             .when(dragging, |this| this.opacity(0.35));
@@ -551,37 +531,21 @@ impl PlaylistPanel {
         h_flex()
             .w_full()
             .justify_between()
-            .gap_4()
+            .gap_2()
             .child(
                 h_flex()
-                    .gap_2()
+                    .gap_1()
                     .child(
                         Button::new("playlist-previous")
-                            .secondary()
+                            .ghost()
                             .small()
-                            .icon(IconName::ChevronLeft)
+                            .icon(IconName::SkipBack)
                             .tooltip("Previous")
                             .disabled(previous_disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.store.read(cx).update_playlist("previous", None, None);
                             })),
                     )
-                    .child(
-                        Button::new("playlist-next")
-                            .secondary()
-                            .small()
-                            .icon(IconName::ChevronRight)
-                            .tooltip("Next")
-                            .disabled(next_disabled)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.store.read(cx).update_playlist("next", None, None);
-                            })),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_1()
-                    .justify_center()
                     .when(item_count > 0, |this| {
                         let current = current_index
                             .map(|index| (index + 1).to_string())
@@ -591,18 +555,29 @@ impl PlaylistPanel {
                                 .text_xs()
                                 .font_family(cx.theme().mono_font_family.clone())
                                 .text_color(cx.theme().muted_foreground)
-                                .child(format!("{current} / {item_count}")),
+                                .child(format!("{current}/{item_count}")),
                         )
-                    }),
+                    })
+                    .child(
+                        Button::new("playlist-next")
+                            .ghost()
+                            .small()
+                            .icon(IconName::SkipForward)
+                            .tooltip("Next")
+                            .disabled(next_disabled)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.store.read(cx).update_playlist("next", None, None);
+                            })),
+                    ),
             )
             .child(
                 h_flex()
-                    .gap_2()
+                    .gap_1()
                     .child(
                         Button::new("toggle-shared-playlist")
                             .ghost()
                             .small()
-                            .icon(IconName::Users)
+                            .icon(IconName::UsersRound)
                             .tooltip(if shared_enabled {
                                 "Shared playlists on"
                             } else {
@@ -665,23 +640,31 @@ impl Render for PlaylistPanel {
             .v_flex()
             .flex_1()
             .min_h_0()
-            .p_4()
-            .gap_2()
+            .px_1()
+            .pr_2()
             .on_drag_move(cx.listener(Self::on_drag_move))
             .on_drop(cx.listener(Self::on_drop))
             .on_drop(cx.listener(Self::on_file_drop))
             .overflow_y_scrollbar();
 
         v_flex()
+            .id("playlist-panel")
+            .track_focus(&self.menu_focus)
+            .on_action(cx.listener(|this, _: &ScanMediaDirectory, _, cx| {
+                this.store.read(cx).refresh_media_index();
+            }))
+            .on_action(cx.listener(|this, _: &OpenMediaDirectories, window, cx| {
+                this.open_media_directories(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &OpenTrustedDomains, window, cx| {
+                this.open_trusted_domains(window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ClearPlaylist, _, cx| {
+                this.store.read(cx).update_playlist("clear", None, None);
+            }))
             .size_full()
             .min_h_0()
-            .child(
-                div()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .p_4()
-                    .child(self.render_header(cx)),
-            )
+            .child(self.render_header(cx))
             .child(
                 div().flex_1().min_h_0().child(
                     list.when(items.is_empty(), |this| {
@@ -699,18 +682,16 @@ impl Render for PlaylistPanel {
                                 )
                                 .child(
                                     div()
-                                        .text_sm()
+                                        .text_xs()
                                         .text_color(cx.theme().muted_foreground)
                                         .child("No items in playlist"),
                                 )
                                 .child(
                                     div()
                                         .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
+                                        .text_color(cx.theme().muted_foreground.opacity(0.7))
                                         .text_center()
-                                        .child(
-                                            "Drag files here or click + to add. Double-click an item to play it.",
-                                        ),
+                                        .child("Drag files here or click + to add"),
                                 ),
                         )
                     })
@@ -725,9 +706,9 @@ impl Render for PlaylistPanel {
             .child(
                 div()
                     .border_t_1()
-                    .border_color(cx.theme().border)
-                    .h(px(64.))
-                    .px_4()
+                    .border_color(cx.theme().sidebar_border)
+                    .h_9()
+                    .px_2()
                     .flex()
                     .items_center()
                     .child(self.render_footer(cx)),
@@ -742,18 +723,6 @@ fn drop_indicator(cx: &App) -> gpui_kit::Div {
         .w_full()
         .h(px(2.))
         .bg(cx.theme().info)
-}
-
-fn accent_tag(label: &'static str, cx: &App) -> impl IntoElement {
-    div()
-        .flex_shrink_0()
-        .text_xs()
-        .px_2()
-        .rounded_full()
-        .border_1()
-        .border_color(cx.theme().info)
-        .bg(cx.theme().info.opacity(0.15))
-        .child(label)
 }
 
 fn reorder_items(items: &[String], from: usize, to: usize) -> Option<Vec<String>> {
