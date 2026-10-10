@@ -12,8 +12,8 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, TitleBar, WindowExt as _};
 use gpui_kit::{
     div, prelude::FluentBuilder as _, px, relative, AnyElement, AppContext as _, Context, Entity,
-    IntoElement, ParentElement as _, Pixels, Render, SharedString, Styled as _, Subscription, Task,
-    Window,
+    InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, SharedString,
+    Styled as _, Subscription, Task, Window,
 };
 
 pub struct RootView {
@@ -234,12 +234,14 @@ impl RootView {
                     ),
             )
             .child(
+                // Without occlusion, Windows turns clicks here into HTCAPTION instead of button events.
                 h_flex()
                     .gap_1()
                     .child(
                         Button::new("toggle-playlist")
                             .ghost()
                             .small()
+                            .occlude()
                             .icon(playlist_icon)
                             .tooltip(if show_playlist {
                                 "Hide playlist"
@@ -252,6 +254,7 @@ impl RootView {
                         Button::new("toggle-theme")
                             .ghost()
                             .small()
+                            .occlude()
                             .icon(theme_icon)
                             .tooltip(if light_theme {
                                 "Theme light"
@@ -266,6 +269,7 @@ impl RootView {
                             Button::new("disconnect")
                                 .ghost()
                                 .small()
+                                .occlude()
                                 .icon(IconName::Link2Off)
                                 .tooltip("Disconnect from server")
                                 .text_color(cx.theme().danger)
@@ -278,6 +282,7 @@ impl RootView {
                         Button::new("open-settings")
                             .ghost()
                             .small()
+                            .occlude()
                             .icon(IconName::Settings)
                             .tooltip("Settings")
                             .on_click(cx.listener(|this, _, window, cx| {
