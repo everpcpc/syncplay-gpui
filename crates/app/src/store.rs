@@ -171,18 +171,14 @@ impl AppStore {
             UiEvent::Core { name, payload } => self.handle_core_event(&name, payload, window, cx),
             UiEvent::ConnectFinished(result) => {
                 self.connect_pending = false;
-                match &result {
-                    Ok(server) => window.push_notification(
-                        (NotificationType::Success, format!("Connected to {server}")),
-                        cx,
-                    ),
-                    Err(error) => window.push_notification(
+                if let Err(error) = &result {
+                    window.push_notification(
                         (
                             NotificationType::Error,
                             format!("Connection failed: {error}"),
                         ),
                         cx,
-                    ),
+                    );
                 }
                 self.connect_result = Some(result);
                 cx.emit(StoreEvent::ConnectFinished);
@@ -277,6 +273,14 @@ impl AppStore {
         match name {
             "connection-status-changed" => {
                 if let Ok(event) = serde_json::from_value::<ConnectionStatusEvent>(payload) {
+                    if event.connected {
+                        if let Some(server) = event.server.as_deref() {
+                            window.push_notification(
+                                (NotificationType::Success, format!("Connected to {server}")),
+                                cx,
+                            );
+                        }
+                    }
                     self.connection = event;
                     self.rtt_ms = None;
                     self.sync_offset_seconds = None;
