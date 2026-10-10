@@ -194,7 +194,7 @@ impl Default for UserPreferences {
             username: String::new(),
             default_room: "default".to_string(),
             room_list: Vec::new(),
-            theme: "dark".to_string(),
+            theme: "light".to_string(),
             transparency_mode: TransparencyMode::Off,
 
             // Default sync thresholds (from sync engine)
@@ -409,6 +409,7 @@ mod tests {
         assert_eq!(config.server.host, "syncplay.pl");
         assert_eq!(config.server.port, 8999);
         assert_eq!(config.user.default_room, "default");
+        assert_eq!(config.user.theme, "light");
         assert_eq!(
             config.player.media_index_timeout_seconds,
             DEFAULT_MEDIA_INDEX_TIMEOUT_SECONDS
