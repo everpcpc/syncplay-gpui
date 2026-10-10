@@ -7156,6 +7156,7 @@ dependencies = [
  "anyhow",
  "async-channel",
  "chrono",
+ "embed-resource",
  "gpui-kit",
  "rfd",
  "self_update",

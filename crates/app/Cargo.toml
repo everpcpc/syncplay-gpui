@@ -6,10 +6,14 @@ authors = ["everpcpc"]
 license = "Apache-2.0"
 repository = "https://github.com/everpcpc/syncplay-gpui"
 edition = "2021"
+build = "build.rs"
 
 [[bin]]
 name = "syncplay"
 path = "src/main.rs"
+
+[build-dependencies]
+embed-resource = "3.0"
 
 [dependencies]
 gpui-kit = "0.7"

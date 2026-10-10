@@ -4,6 +4,8 @@
 
 Unicode true
 !include "MUI2.nsh"
+!define MUI_ICON "syncplay.ico"
+!define MUI_UNICON "syncplay.ico"
 
 !ifndef VERSION
 !define VERSION "0.0.0"
@@ -34,6 +36,7 @@ Section "Install"
 	CreateShortcut "$SMPROGRAMS\Syncplay\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
 
 	WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "DisplayName" "Syncplay"
+	WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "DisplayIcon" '"$INSTDIR\syncplay.exe",0'
 	WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "UninstallString" '"$INSTDIR\Uninstall.exe"'
 	WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "DisplayVersion" "${VERSION}"
 	WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "NoModify" 1
