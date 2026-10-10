@@ -7197,6 +7197,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
+ "webpki-roots 0.25.4",
  "windows 0.62.2",
 ]
 
