@@ -8,11 +8,10 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _, StyledExt as _,
-    WindowExt as _,
+    ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Placement, Sizable as _,
+    StyledExt as _, WindowExt as _,
 };
 use gpui_kit::{
     actions, div, prelude::FluentBuilder as _, px, Anchor, App, AppContext as _, Bounds, Context,
@@ -81,6 +80,7 @@ pub struct PlaylistPanel {
     /// Fallback directory for the next add-file picker; the web client keeps
     /// this in localStorage, in-memory covers the same session habit.
     last_add_directory: Option<String>,
+    file_picker_open: bool,
     hovered_row: Option<usize>,
     drag_target: Option<usize>,
     drag_source: Option<usize>,
@@ -101,6 +101,7 @@ impl PlaylistPanel {
             trusted_domains,
             menu_focus: cx.focus_handle(),
             last_add_directory: None,
+            file_picker_open: false,
             hovered_row: None,
             drag_target: None,
             drag_source: None,
@@ -138,6 +139,9 @@ impl PlaylistPanel {
     }
 
     fn handle_add_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.file_picker_open {
+            return;
+        }
         let (connected, media_directories) = {
             let store = self.store.read(cx);
             (store.is_connected(), media_directories(&store.config))
@@ -161,7 +165,10 @@ impl PlaylistPanel {
             .filter(|dir| media_directories.iter().any(|d| is_path_inside(dir, d)))
             .or_else(|| media_directories.first().cloned());
 
+        self.file_picker_open = true;
+        cx.notify();
         let mut picker = rfd::AsyncFileDialog::new()
+            .set_parent(window)
             .add_filter("Video", &VIDEO_EXTENSIONS)
             .add_filter("Audio", &AUDIO_EXTENSIONS)
             .add_filter("All files", &["*"]);
@@ -169,12 +176,16 @@ impl PlaylistPanel {
             picker = picker.set_directory(directory);
         }
         cx.spawn_in(window, async move |this, cx| {
-            let Some(file) = picker.pick_file().await else {
-                return;
-            };
-            let path = file.path().to_string_lossy().to_string();
+            let path = picker
+                .pick_file()
+                .await
+                .map(|file| file.path().to_string_lossy().to_string());
             let _ = this.update_in(cx, |this, window, cx| {
-                this.finish_add_file(path, window, cx);
+                this.file_picker_open = false;
+                if let Some(path) = path {
+                    this.finish_add_file(path, window, cx);
+                }
+                cx.notify();
             });
         })
         .detach();
@@ -291,8 +302,8 @@ impl PlaylistPanel {
         h_flex()
             .w_full()
             .px_3()
-            .pt_2()
-            .pb_1()
+            .pt_3()
+            .pb_2()
             .gap_1()
             .child(
                 div()
@@ -308,8 +319,9 @@ impl PlaylistPanel {
                     .ghost()
                     .small()
                     .icon(IconName::Plus)
+                    .tooltip_placement(Placement::Right)
                     .tooltip("Add file")
-                    .disabled(!connected)
+                    .disabled(!connected || self.file_picker_open)
                     .on_click(cx.listener(|this, _, window, cx| this.handle_add_file(window, cx))),
             )
             .child(
@@ -317,6 +329,7 @@ impl PlaylistPanel {
                     .ghost()
                     .small()
                     .icon(IconName::Ellipsis)
+                    .tooltip_placement(Placement::Right)
                     .tooltip("Playlist actions")
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                         menu.action_context(menu_focus.clone())
@@ -363,9 +376,8 @@ impl PlaylistPanel {
             .unwrap_or_else(|| "Unresolved path".to_string())
             .into();
 
-        let mut content = div()
-            .id(("playlist-item", ix))
-            .h_flex()
+        let content = Button::new(("playlist-item", ix))
+            .ghost()
             .w_full()
             .gap_2()
             .px_2()
@@ -416,7 +428,8 @@ impl PlaylistPanel {
                         .child("Unavailable"),
                 )
             })
-            .tooltip(move |window, cx| Tooltip::new(tooltip_text.clone()).build(window, cx))
+            .tooltip_placement(Placement::Top)
+            .tooltip(tooltip_text)
             .on_click(
                 cx.listener(move |this, event: &gpui_kit::ClickEvent, _, cx| {
                     let gpui_kit::ClickEvent::Mouse(mouse) = event else {
@@ -426,26 +439,11 @@ impl PlaylistPanel {
                         this.play_item(ix, cx);
                     }
                 }),
-            )
-            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                if *hovered {
-                    this.hovered_row = Some(ix);
-                } else if this.hovered_row == Some(ix) {
-                    this.hovered_row = None;
-                }
-                cx.notify();
-            }));
-        if sortable {
-            let drag = PlaylistItemDrag {
-                index: ix,
-                label: item.to_string().into(),
-            };
-            content = content.on_drag(drag, move |drag, _, _, cx| {
-                cx.new(|_| PlaylistDragGhost {
-                    label: drag.label.clone(),
-                })
-            });
-        }
+            );
+        let drag = sortable.then(|| PlaylistItemDrag {
+            index: ix,
+            label: item.to_string().into(),
+        });
 
         let content = content
             .map(|this| {
@@ -460,58 +458,76 @@ impl PlaylistPanel {
             .when(dragging, |this| this.opacity(0.35));
 
         let row_bounds = self.row_bounds.clone();
-        div()
+        let mut row = div()
+            .id(("playlist-item-row", ix))
             .relative()
             .w_full()
+            .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                if *hovered {
+                    this.hovered_row = Some(ix);
+                } else if this.hovered_row == Some(ix) {
+                    this.hovered_row = None;
+                }
+                cx.notify();
+            }))
             .on_prepaint(move |bounds, _, _| {
                 let mut rows = row_bounds.borrow_mut();
                 if ix < rows.len() {
                     rows[ix] = bounds;
                 }
             })
-            .child(content.into_any_element())
-            .when(hovered, |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .h_flex()
-                        .justify_between()
-                        .child(
-                            Button::new(("play-item", ix))
-                                .secondary()
-                                .small()
-                                .icon(IconName::Play)
-                                .tooltip("Play")
-                                .disabled(!connected || !available)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.play_item(ix, cx);
-                                })),
-                        )
-                        .child(
-                            Button::new(("remove-item", ix))
-                                .secondary()
-                                .small()
-                                .icon(IconName::Trash)
-                                .tooltip("Remove")
-                                .text_color(cx.theme().danger)
-                                .disabled(!connected)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.store.read(cx).update_playlist(
-                                        "remove",
-                                        Some(ix.to_string()),
-                                        None,
-                                    );
-                                })),
-                        ),
-                )
-            })
-            .when(show_indicator, |this| {
-                this.child(drop_indicator(cx).top(px(-3.)).into_any_element())
-            })
-            .when(show_end_indicator, |this| {
-                this.child(drop_indicator(cx).bottom(px(-3.)).into_any_element())
-            })
+            .child(content.into_any_element());
+        if let Some(drag) = drag {
+            row = row.on_drag(drag, move |drag, _, _, cx| {
+                cx.new(|_| PlaylistDragGhost {
+                    label: drag.label.clone(),
+                })
+            });
+        }
+        row.when(hovered, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .h_flex()
+                    .justify_between()
+                    .child(
+                        Button::new(("play-item", ix))
+                            .secondary()
+                            .small()
+                            .icon(IconName::Play)
+                            .tooltip_placement(Placement::Right)
+                            .tooltip("Play")
+                            .disabled(!connected || !available)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.play_item(ix, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new(("remove-item", ix))
+                            .secondary()
+                            .small()
+                            .icon(IconName::Trash)
+                            .tooltip_placement(Placement::Right)
+                            .tooltip("Remove")
+                            .text_color(cx.theme().danger)
+                            .disabled(!connected)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.store.read(cx).update_playlist(
+                                    "remove",
+                                    Some(ix.to_string()),
+                                    None,
+                                );
+                            })),
+                    ),
+            )
+        })
+        .when(show_indicator, |this| {
+            this.child(drop_indicator(cx).top(px(-3.)).into_any_element())
+        })
+        .when(show_end_indicator, |this| {
+            this.child(drop_indicator(cx).bottom(px(-3.)).into_any_element())
+        })
     }
 
     fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -540,6 +556,7 @@ impl PlaylistPanel {
                             .ghost()
                             .small()
                             .icon(IconName::SkipBack)
+                            .tooltip_placement(Placement::Right)
                             .tooltip("Previous")
                             .disabled(previous_disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -563,6 +580,7 @@ impl PlaylistPanel {
                             .ghost()
                             .small()
                             .icon(IconName::SkipForward)
+                            .tooltip_placement(Placement::Right)
                             .tooltip("Next")
                             .disabled(next_disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -578,6 +596,7 @@ impl PlaylistPanel {
                             .ghost()
                             .small()
                             .icon(IconName::UsersRound)
+                            .tooltip_placement(Placement::Right)
                             .tooltip(if shared_enabled {
                                 "Shared playlists on"
                             } else {
@@ -595,6 +614,7 @@ impl PlaylistPanel {
                             .ghost()
                             .small()
                             .icon(IconName::Repeat)
+                            .tooltip_placement(Placement::Right)
                             .tooltip(if loop_playlist {
                                 "Loop playlist on"
                             } else {
@@ -612,6 +632,7 @@ impl PlaylistPanel {
                             .ghost()
                             .small()
                             .icon(IconName::Repeat1)
+                            .tooltip_placement(Placement::Right)
                             .tooltip(if loop_single {
                                 "Loop file on"
                             } else {
@@ -797,6 +818,7 @@ pub struct MediaDirectoriesDialog {
     store: Entity<AppStore>,
     timeout_input: Entity<InputState>,
     directory_input: Entity<InputState>,
+    directory_picker_open: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -830,6 +852,7 @@ impl MediaDirectoriesDialog {
             store,
             timeout_input,
             directory_input,
+            directory_picker_open: false,
             _subscriptions: subscriptions,
         }
     }
@@ -913,14 +936,23 @@ impl MediaDirectoriesDialog {
     }
 
     fn browse_directory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.directory_picker_open {
+            return;
+        }
+        self.directory_picker_open = true;
+        cx.notify();
+        let picker = rfd::AsyncFileDialog::new().set_parent(window);
         cx.spawn_in(window, async move |this, cx| {
-            let picker = rfd::AsyncFileDialog::new();
-            let Some(folder) = picker.pick_folder().await else {
-                return;
-            };
-            let path = folder.path().to_string_lossy().to_string();
+            let path = picker
+                .pick_folder()
+                .await
+                .map(|folder| folder.path().to_string_lossy().to_string());
             let _ = this.update_in(cx, |this, window, cx| {
-                this.add_picked_directory(path, window, cx);
+                this.directory_picker_open = false;
+                if let Some(path) = path {
+                    this.add_picked_directory(path, window, cx);
+                }
+                cx.notify();
             });
         })
         .detach();
@@ -1021,6 +1053,7 @@ impl Render for MediaDirectoriesDialog {
                                 Button::new("browse-media-directory")
                                     .secondary()
                                     .label("Browse")
+                                    .disabled(self.directory_picker_open)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.browse_directory(window, cx)
                                     })),
@@ -1071,6 +1104,7 @@ impl Render for MediaDirectoriesDialog {
                                             .secondary()
                                             .xsmall()
                                             .icon(IconName::ChevronUp)
+                                            .tooltip_placement(Placement::Right)
                                             .tooltip("Move up")
                                             .disabled(ix == 0)
                                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -1082,6 +1116,7 @@ impl Render for MediaDirectoriesDialog {
                                             .secondary()
                                             .xsmall()
                                             .icon(IconName::ChevronDown)
+                                            .tooltip_placement(Placement::Right)
                                             .tooltip("Move down")
                                             .disabled(ix + 1 >= directory_count)
                                             .on_click(cx.listener(move |this, _, _, cx| {

@@ -9,7 +9,9 @@ use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
 use gpui_kit::component::status_bar::StatusBar;
 use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, TitleBar, WindowExt as _};
+use gpui_kit::component::{
+    ActiveTheme as _, Icon, Placement, Sizable as _, TitleBar, WindowExt as _,
+};
 use gpui_kit::{
     div, prelude::FluentBuilder as _, px, relative, AnyElement, AppContext as _, Context, Entity,
     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, SharedString,
@@ -207,24 +209,20 @@ impl RootView {
 
         h_flex()
             .w_full()
-            .px_4()
+            .pr_4()
+            .pl(if cfg!(target_os = "macos") {
+                px(16.)
+            } else {
+                px(0.)
+            })
             .justify_between()
             .child(
                 h_flex()
                     .gap_2()
                     .child(
-                        div()
-                            .size_6()
-                            .rounded(cx.theme().radius)
-                            .bg(cx.theme().info.opacity(0.15))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                Icon::new(IconName::MonitorPlay)
-                                    .small()
-                                    .text_color(cx.theme().info),
-                            ),
+                        Icon::new(IconName::MonitorPlay)
+                            .small()
+                            .text_color(cx.theme().foreground),
                     )
                     .child(
                         div()
@@ -237,25 +235,29 @@ impl RootView {
                 // Without occlusion, Windows turns clicks here into HTCAPTION instead of button events.
                 h_flex()
                     .gap_1()
-                    .child(
-                        Button::new("toggle-playlist")
-                            .ghost()
-                            .small()
-                            .occlude()
-                            .icon(playlist_icon)
-                            .tooltip(if show_playlist {
-                                "Hide playlist"
-                            } else {
-                                "Show playlist"
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_playlist(cx))),
-                    )
+                    .when(connected, |this| {
+                        this.child(
+                            Button::new("toggle-playlist")
+                                .ghost()
+                                .small()
+                                .occlude()
+                                .icon(playlist_icon)
+                                .tooltip_placement(Placement::Right)
+                                .tooltip(if show_playlist {
+                                    "Hide playlist"
+                                } else {
+                                    "Show playlist"
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle_playlist(cx))),
+                        )
+                    })
                     .child(
                         Button::new("toggle-theme")
                             .ghost()
                             .small()
                             .occlude()
                             .icon(theme_icon)
+                            .tooltip_placement(Placement::Right)
                             .tooltip(if light_theme {
                                 "Theme light"
                             } else {
@@ -263,7 +265,9 @@ impl RootView {
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_theme(cx))),
                     )
-                    .child(div().w(px(1.)).h_4().bg(cx.theme().border))
+                    .when(connected, |this| {
+                        this.child(div().w(px(1.)).h_4().bg(cx.theme().border))
+                    })
                     .when(connected, |this| {
                         this.child(
                             Button::new("disconnect")
@@ -271,6 +275,7 @@ impl RootView {
                                 .small()
                                 .occlude()
                                 .icon(IconName::Link2Off)
+                                .tooltip_placement(Placement::Right)
                                 .tooltip("Disconnect from server")
                                 .text_color(cx.theme().danger)
                                 .on_click(
@@ -284,6 +289,7 @@ impl RootView {
                             .small()
                             .occlude()
                             .icon(IconName::Settings)
+                            .tooltip_placement(Placement::Right)
                             .tooltip("Settings")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 crate::settings::open_settings_dialog(
@@ -329,11 +335,7 @@ impl RootView {
         } else if paused {
             (cx.theme().muted, cx.theme().warning, IconName::Pause)
         } else {
-            (
-                cx.theme().info.opacity(0.15),
-                cx.theme().info,
-                IconName::Play,
-            )
+            (cx.theme().info_hover, cx.theme().info, IconName::Play)
         };
 
         Some(
@@ -344,19 +346,19 @@ impl RootView {
                 .child(
                     h_flex()
                         .w_full()
-                        .px_6()
+                        .px_5()
                         .pt_4()
-                        .gap_4()
+                        .gap_3()
                         .child(
                             div()
                                 .flex_shrink_0()
-                                .size_11()
-                                .rounded(cx.theme().radius_lg)
+                                .size_9()
+                                .rounded(cx.theme().radius)
                                 .bg(icon_bg)
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .child(Icon::new(state_icon).large().text_color(icon_color)),
+                                .child(Icon::new(state_icon).small().text_color(icon_color)),
                         )
                         .child(
                             div()
@@ -536,6 +538,7 @@ impl RootView {
                 .ghost()
                 .xsmall()
                 .label(concat!("v", env!("CARGO_PKG_VERSION")))
+                .tooltip_placement(Placement::Right)
                 .tooltip("Check for updates")
                 .text_color(muted)
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -553,6 +556,7 @@ impl RootView {
                 .xsmall()
                 .icon(IconName::Download)
                 .label(format!("v{version}"))
+                .tooltip_placement(Placement::Right)
                 .tooltip("Download and install")
                 .text_color(cx.theme().info)
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -569,6 +573,7 @@ impl RootView {
                 .xsmall()
                 .icon(IconName::RotateCw)
                 .label("Restart")
+                .tooltip_placement(Placement::Right)
                 .tooltip(format!("Restart to finish v{version}"))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.store.read(cx).restart_for_update();
@@ -639,48 +644,51 @@ impl Render for RootView {
         let connected = self.store.read(cx).is_connected();
 
         let root = cx.entity();
+        let workspace = if connected {
+            h_resizable("main-split")
+                .with_state(&self.main_split)
+                .on_resize(move |_, window, cx| {
+                    root.update(cx, |this, cx| this.queue_layout_save(window, cx));
+                })
+                .child(
+                    resizable_panel()
+                        .size(side_default)
+                        .size_range(px(240.)..px(480.))
+                        .flex_none()
+                        .child(
+                            div()
+                                .size_full()
+                                .bg(cx.theme().sidebar)
+                                .text_color(cx.theme().sidebar_foreground)
+                                .border_r_1()
+                                .border_color(cx.theme().sidebar_border)
+                                .child(self.render_side_column(cx)),
+                        ),
+                )
+                .child(
+                    resizable_panel().size_range(px(420.)..Pixels::MAX).child(
+                        v_flex()
+                            .size_full()
+                            .min_w_0()
+                            .bg(cx.theme().popover)
+                            .children(self.render_playback_header(cx))
+                            .child(div().flex_1().min_h_0().child(self.chat.clone())),
+                    ),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .size_full()
+                .child(self.connect_panel.clone())
+                .into_any_element()
+        };
+
         v_flex()
             .size_full()
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .child(TitleBar::new().child(self.render_titlebar(cx)))
-            .child(
-                div().flex_1().min_h_0().child(
-                    h_resizable("main-split")
-                        .with_state(&self.main_split)
-                        .on_resize(move |_, window, cx| {
-                            root.update(cx, |this, cx| this.queue_layout_save(window, cx));
-                        })
-                        .child(
-                            resizable_panel()
-                                .size(side_default)
-                                .size_range(px(240.)..px(480.))
-                                .flex_none()
-                                .child(
-                                    div()
-                                        .size_full()
-                                        .bg(cx.theme().sidebar)
-                                        .text_color(cx.theme().sidebar_foreground)
-                                        .border_r_1()
-                                        .border_color(cx.theme().sidebar_border)
-                                        .child(self.render_side_column(cx)),
-                                ),
-                        )
-                        .child(
-                            resizable_panel().size_range(px(420.)..Pixels::MAX).child(
-                                v_flex()
-                                    .size_full()
-                                    .min_w_0()
-                                    .children(self.render_playback_header(cx))
-                                    .child(div().flex_1().min_h_0().child(if connected {
-                                        self.chat.clone().into_any_element()
-                                    } else {
-                                        self.connect_panel.clone().into_any_element()
-                                    })),
-                            ),
-                        ),
-                ),
-            )
+            .child(div().flex_1().min_h_0().child(workspace))
             .child(self.render_status_bar(cx))
     }
 }

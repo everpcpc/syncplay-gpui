@@ -2,7 +2,9 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::component::{ActiveTheme as _, Icon, Sizable as _, StyledExt as _, WindowExt as _};
+use gpui_kit::component::{
+    ActiveTheme as _, Icon, Placement, Sizable as _, StyledExt as _, WindowExt as _,
+};
 use gpui_kit::{
     div, hsla, prelude::FluentBuilder as _, px, white, AppContext as _, Context, Entity,
     FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
@@ -49,42 +51,25 @@ impl UserListPanel {
         let is_ready = current_user.map(|user| user.is_ready).unwrap_or(false);
         let room = current_room(store);
 
-        let subtitle: SharedString = if connected {
-            store
-                .connection
-                .server
-                .clone()
-                .unwrap_or_else(|| "Connected".to_string())
-                .into()
-        } else {
-            "Not connected".into()
-        };
-
         h_flex()
             .w_full()
             .justify_between()
             .gap_2()
+            .p_3()
+            .rounded(cx.theme().radius_lg)
+            .border_1()
+            .border_color(cx.theme().sidebar_border)
+            .bg(cx.theme().popover)
             .child(
-                v_flex()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(room),
-                    )
-                    .child(
-                        div()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(subtitle),
-                    ),
+                v_flex().min_w_0().child(
+                    div()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(room),
+                ),
             )
             .child(
                 h_flex()
@@ -98,6 +83,7 @@ impl UserListPanel {
                             } else {
                                 IconName::CircleDashed
                             })
+                            .tooltip_placement(Placement::Right)
                             .tooltip(if is_ready { "Ready" } else { "Not ready" })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.store.read(cx).set_ready(!is_ready);
@@ -113,6 +99,7 @@ impl UserListPanel {
                             .ghost()
                             .small()
                             .icon(IconName::PencilLine)
+                            .tooltip_placement(Placement::Right)
                             .tooltip("Rooms")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_room_manager(window, cx)

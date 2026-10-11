@@ -674,12 +674,174 @@ impl AppStore {
 }
 
 pub fn apply_theme(theme: &str, window: Option<&mut Window>, cx: &mut gpui_kit::App) {
-    let mode = if theme == "light" {
-        ThemeMode::Light
-    } else {
+    let dark = theme != "light";
+    let mode = if dark {
         ThemeMode::Dark
+    } else {
+        ThemeMode::Light
     };
     Theme::change(mode, window, cx);
+
+    let color = |hex: u32| gpui_kit::Hsla::from(gpui_kit::rgb(hex));
+    let (
+        background,
+        card,
+        card_alt,
+        pill,
+        pill_hover,
+        border,
+        foreground,
+        muted,
+        faint,
+        accent,
+        accent_soft,
+        selection,
+        success,
+        danger,
+        warning,
+    ) = if dark {
+        (
+            color(0x1a1a1e),
+            color(0x232327),
+            color(0x1f1f23),
+            color(0x2d2d33),
+            color(0x36363d),
+            color(0x333339),
+            color(0xededf1),
+            color(0xa1a1aa),
+            color(0x56565f),
+            color(0xa5b4fc),
+            color(0x2b2c47),
+            color(0x33345a),
+            color(0x6fd99b),
+            color(0xf28b82),
+            color(0xf2b544),
+        )
+    } else {
+        (
+            color(0xf4f4f6),
+            color(0xffffff),
+            color(0xf9f9fb),
+            color(0xf1f1f4),
+            color(0xe9e9ee),
+            color(0xe3e3e8),
+            color(0x1c1c21),
+            color(0x63636b),
+            color(0xb9b9c2),
+            color(0x4f46e5),
+            color(0xeeedfd),
+            color(0xecebfb),
+            color(0x189a58),
+            color(0xd64545),
+            color(0xb45309),
+        )
+    };
+    let primary_foreground = if dark {
+        color(0x1c1c21)
+    } else {
+        color(0xffffff)
+    };
+    let primary_hover = if dark {
+        color(0xd7d7dc)
+    } else {
+        color(0x34343a)
+    };
+    let primary_active = if dark {
+        color(0xffffff)
+    } else {
+        color(0x000000)
+    };
+
+    Theme::update(cx, |theme| {
+        theme.background = background;
+        theme.foreground = foreground;
+        theme.popover = card;
+        theme.popover_foreground = foreground;
+        theme.group_box = card_alt;
+        theme.group_box_foreground = foreground;
+        theme.muted = pill;
+        theme.muted_foreground = muted;
+        theme.skeleton = faint;
+        theme.border = border;
+        theme.input = border;
+        theme.accent = pill_hover;
+        theme.accent_foreground = foreground;
+        theme.secondary = pill;
+        theme.secondary_hover = pill_hover;
+        theme.secondary_active = pill_hover;
+        theme.secondary_foreground = foreground;
+        theme.primary = foreground;
+        theme.primary_hover = primary_hover;
+        theme.primary_active = primary_active;
+        theme.primary_foreground = primary_foreground;
+        theme.button = pill;
+        theme.button_hover = pill_hover;
+        theme.button_active = pill_hover;
+        theme.button_foreground = foreground;
+        theme.button_primary = foreground;
+        theme.button_primary_hover = primary_hover;
+        theme.button_primary_active = primary_active;
+        theme.button_primary_foreground = primary_foreground;
+        theme.button_secondary = pill;
+        theme.button_secondary_hover = pill_hover;
+        theme.button_secondary_active = pill_hover;
+        theme.button_secondary_foreground = foreground;
+        theme.info = accent;
+        theme.info_hover = accent_soft;
+        theme.info_active = accent;
+        theme.info_foreground = primary_foreground;
+        theme.success = success;
+        theme.success_hover = success;
+        theme.success_active = success;
+        theme.success_foreground = if dark {
+            color(0x14301f)
+        } else {
+            color(0xffffff)
+        };
+        theme.danger = danger;
+        theme.danger_hover = danger;
+        theme.danger_active = danger;
+        theme.danger_foreground = if dark {
+            color(0x3a1b1b)
+        } else {
+            color(0xffffff)
+        };
+        theme.warning = warning;
+        theme.warning_hover = warning;
+        theme.warning_active = warning;
+        theme.warning_foreground = if dark {
+            color(0x342712)
+        } else {
+            color(0xffffff)
+        };
+        theme.colors.list = card;
+        theme.list_head = card_alt;
+        theme.list_even = card_alt;
+        theme.list_hover = pill;
+        theme.list_active = selection;
+        theme.list_active_border = accent;
+        theme.sidebar = background;
+        theme.sidebar_accent = pill;
+        theme.sidebar_accent_foreground = foreground;
+        theme.sidebar_border = border;
+        theme.sidebar_foreground = foreground;
+        theme.sidebar_primary = foreground;
+        theme.sidebar_primary_foreground = primary_foreground;
+        theme.selection = selection;
+        theme.progress_bar = accent;
+        theme.ring = accent;
+        theme.caret = accent;
+        theme.link = accent;
+        theme.link_hover = accent;
+        theme.link_active = accent;
+        theme.scrollbar = background;
+        theme.scrollbar_thumb = faint;
+        theme.scrollbar_thumb_hover = muted;
+        theme.font_size = gpui_kit::px(17.);
+        theme.mono_font_size = gpui_kit::px(14.);
+        theme.radius = gpui_kit::px(7.);
+        theme.radius_lg = gpui_kit::px(12.);
+    });
 }
 
 fn parse_timestamp_ms(timestamp: &str) -> Option<i64> {
