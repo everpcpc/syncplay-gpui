@@ -236,117 +236,129 @@ impl Render for ConnectPanel {
             )
         };
 
-        v_flex().size_full().items_center().justify_center().child(
-            v_flex()
-                .w(px(380.))
-                .gap_4()
-                .child(
-                    v_flex()
-                        .items_center()
-                        .gap_3()
-                        .child(
-                            div()
-                                .size(px(56.))
-                                .rounded(cx.theme().radius_lg)
-                                .bg(cx.theme().info.opacity(0.12))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    Icon::new(IconName::MonitorPlay)
-                                        .with_size(px(28.))
-                                        .text_color(cx.theme().info),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Welcome to Syncplay"),
-                        )
-                        .child(
-                            div()
-                                .pb_2()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Connect to a server to watch together."),
-                        ),
-                )
-                .child(
-                    v_form()
-                        .child(
-                            field()
-                                .label("Address (host:port)")
-                                .child(self.render_address_input(cx)),
-                        )
-                        .child(
-                            field()
-                                .label("Username *")
-                                .child(Input::new(&self.username)),
-                        )
-                        .child(field().label("Room").child(self.render_room_input(cx)))
-                        .child(
-                            field()
-                                .label("Password (optional)")
-                                .child(Input::new(&self.password)),
-                        ),
-                )
-                .when(player_missing, |this| {
-                    this.child(
-                        h_flex()
-                            .gap_2()
+        v_flex()
+            .size_full()
+            .items_center()
+            .justify_center()
+            .p_6()
+            .bg(cx.theme().background)
+            .child(
+                v_flex()
+                    .w(px(440.))
+                    .max_w_full()
+                    .p_6()
+                    .gap_5()
+                    .rounded(cx.theme().radius_lg)
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .bg(cx.theme().popover)
+                    .child(
+                        v_flex()
+                            .gap_1()
                             .child(
-                                Icon::new(IconName::TriangleAlert)
-                                    .small()
-                                    .text_color(cx.theme().warning),
+                                div()
+                                    .text_xl()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child("Connect to a room"),
                             )
                             .child(
                                 div()
-                                    .flex_1()
-                                    .text_xs()
-                                    .text_color(cx.theme().warning)
-                                    .child("Select a media player before connecting."),
-                            )
-                            .child(
-                                Button::new("open-player-settings")
-                                    .ghost()
-                                    .xsmall()
-                                    .label("Open Settings")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        open_settings_dialog_at(
-                                            window,
-                                            cx,
-                                            this.store.clone(),
-                                            SettingsTab::Player,
-                                        )
-                                    })),
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Join a Syncplay server to watch and chat together."),
                             ),
                     )
-                })
-                .when_some(self.error.clone(), |this, error| {
-                    this.child(
-                        div()
-                            .p_2()
-                            .rounded(cx.theme().radius)
-                            .text_sm()
-                            .text_color(cx.theme().danger_foreground)
-                            .bg(cx.theme().danger)
-                            .child(error),
+                    .child(
+                        v_form()
+                            .child(
+                                field()
+                                    .label("Address (host:port)")
+                                    .child(self.render_address_input(cx)),
+                            )
+                            .child(
+                                field()
+                                    .label("Username *")
+                                    .child(Input::new(&self.username)),
+                            )
+                            .child(field().label("Room").child(self.render_room_input(cx)))
+                            .child(
+                                field()
+                                    .label("Password (optional)")
+                                    .child(Input::new(&self.password)),
+                            ),
                     )
-                })
-                .child(
-                    Button::new("connect")
-                        .primary()
-                        .w_full()
-                        .label(if connecting {
-                            "Connecting..."
-                        } else {
-                            "Connect"
-                        })
-                        .disabled(connecting || player_missing)
-                        .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
-                ),
-        )
+                    .when(player_missing, |this| {
+                        this.child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .p_3()
+                                .rounded(cx.theme().radius)
+                                .bg(cx.theme().warning.opacity(0.12))
+                                .child(
+                                    Icon::new(IconName::TriangleAlert)
+                                        .small()
+                                        .text_color(cx.theme().warning),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .text_color(cx.theme().foreground)
+                                        .child("Select a media player before connecting."),
+                                )
+                                .child(
+                                    Button::new("open-player-settings")
+                                        .secondary()
+                                        .xsmall()
+                                        .label("Choose Player")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            open_settings_dialog_at(
+                                                window,
+                                                cx,
+                                                this.store.clone(),
+                                                SettingsTab::Player,
+                                            )
+                                        })),
+                                ),
+                        )
+                    })
+                    .when_some(self.error.clone(), |this, error| {
+                        this.child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .p_3()
+                                .rounded(cx.theme().radius)
+                                .bg(cx.theme().danger.opacity(0.10))
+                                .child(
+                                    Icon::new(IconName::TriangleAlert)
+                                        .small()
+                                        .text_color(cx.theme().danger),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .text_sm()
+                                        .text_color(cx.theme().foreground)
+                                        .child(error),
+                                ),
+                        )
+                    })
+                    .child(
+                        Button::new("connect")
+                            .primary()
+                            .large()
+                            .w_full()
+                            .label(if connecting {
+                                "Connecting…"
+                            } else {
+                                "Connect"
+                            })
+                            .disabled(connecting || player_missing)
+                            .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),
+                    ),
+            )
     }
 }
 
