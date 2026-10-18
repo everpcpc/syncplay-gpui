@@ -87,13 +87,17 @@ fn detect_mpc_be() -> Option<DetectedPlayer> {
 
 #[cfg(target_os = "macos")]
 fn detect_iina() -> Option<DetectedPlayer> {
-    let paths = [
-        "/Applications/IINA.app/Contents/MacOS/IINA",
-        "/Applications/IINA.app/Contents/MacOS/iina-cli",
+    let mut paths = vec![
+        PathBuf::from("/Applications/IINA.app/Contents/MacOS/IINA"),
+        PathBuf::from("/Applications/IINA.app/Contents/MacOS/iina-cli"),
     ];
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join("Applications/IINA.app/Contents/MacOS/IINA"));
+        paths.push(home.join("Applications/IINA.app/Contents/MacOS/iina-cli"));
+    }
 
     for path in paths {
-        let path = PathBuf::from(normalize_iina_player_path(path));
+        let path = PathBuf::from(normalize_iina_player_path(&path.to_string_lossy()));
         if is_runnable_file(&path) {
             return Some(DetectedPlayer {
                 name: "IINA".to_string(),
@@ -128,13 +132,23 @@ pub(crate) fn normalize_iina_player_path(player_path: &str) -> String {
 }
 
 fn base_mpv_paths() -> Vec<PathBuf> {
-    vec![PathBuf::from("mpv"), PathBuf::from("/opt/mpv/mpv")]
+    vec![
+        PathBuf::from("mpv"),
+        PathBuf::from("/opt/mpv/mpv"),
+        PathBuf::from("/snap/bin/mpv"),
+    ]
 }
 
 #[cfg(target_os = "macos")]
 fn get_mpv_paths() -> Vec<PathBuf> {
     let mut paths = base_mpv_paths();
     paths.push(PathBuf::from("/Applications/mpv.app/Contents/MacOS/mpv"));
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join("Applications/mpv.app/Contents/MacOS/mpv"));
+    }
+    // GUI apps get a PATH without the Homebrew prefix, so brew installs are only found by absolute path
+    paths.push(PathBuf::from("/opt/homebrew/bin/mpv"));
+    paths.push(PathBuf::from("/usr/local/bin/mpv"));
     paths
 }
 
@@ -152,6 +166,19 @@ fn get_mpv_paths() -> Vec<PathBuf> {
         paths.push(PathBuf::from(format!(
             "{}\\Microsoft\\WindowsApps\\mpv.exe",
             local_appdata
+        )));
+    }
+    // Registry PATH only reaches GUI apps after re-login, so check package-manager shims directly
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        paths.push(PathBuf::from(format!(
+            "{}\\scoop\\shims\\mpv.exe",
+            user_profile
+        )));
+    }
+    if let Ok(program_data) = std::env::var("PROGRAMDATA") {
+        paths.push(PathBuf::from(format!(
+            "{}\\chocolatey\\bin\\mpv.exe",
+            program_data
         )));
     }
 
@@ -180,6 +207,12 @@ fn get_mpvnet_paths() -> Vec<PathBuf> {
             local_appdata
         )));
     }
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        paths.push(PathBuf::from(format!(
+            "{}\\scoop\\shims\\mpvnet.exe",
+            user_profile
+        )));
+    }
     paths
 }
 
@@ -200,15 +233,21 @@ fn get_vlc_paths() -> Vec<PathBuf> {
 
 #[cfg(not(target_os = "windows"))]
 fn get_vlc_paths() -> Vec<PathBuf> {
-    vec![
+    let mut paths = vec![
         PathBuf::from("/usr/bin/vlc"),
         PathBuf::from("/usr/bin/vlc-wrapper"),
         PathBuf::from("/Applications/VLC.app/Contents/MacOS/VLC"),
         PathBuf::from("/usr/local/bin/vlc"),
         PathBuf::from("/usr/local/bin/vlc-wrapper"),
         PathBuf::from("/snap/bin/vlc"),
+        PathBuf::from("/opt/homebrew/bin/vlc"),
         PathBuf::from("vlc"),
-    ]
+    ];
+    #[cfg(target_os = "macos")]
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join("Applications/VLC.app/Contents/MacOS/VLC"));
+    }
+    paths
 }
 
 #[cfg(target_os = "windows")]
@@ -223,7 +262,12 @@ fn get_mplayer_paths() -> Vec<PathBuf> {
 
 #[cfg(not(target_os = "windows"))]
 fn get_mplayer_paths() -> Vec<PathBuf> {
-    vec![PathBuf::from("mplayer2"), PathBuf::from("mplayer")]
+    vec![
+        PathBuf::from("mplayer2"),
+        PathBuf::from("mplayer"),
+        PathBuf::from("/opt/homebrew/bin/mplayer"),
+        PathBuf::from("/usr/local/bin/mplayer"),
+    ]
 }
 
 #[cfg(target_os = "windows")]
