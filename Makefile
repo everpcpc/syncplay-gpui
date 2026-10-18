@@ -23,7 +23,7 @@ format:
 
 test:
 	@echo "Running Rust tests..."
-	@cargo test --workspace
+	@cargo nextest run --workspace
 	@echo "All tests completed"
 
 lint:
