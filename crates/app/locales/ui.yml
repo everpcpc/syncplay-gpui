@@ -733,36 +733,72 @@ settings:
     zh-TW: 同步
     ja: 同期
     fr: "Synchro"
-  tab_readiness:
-    en: Readiness
-    zh-CN: 就绪
-    zh-TW: 就緒
-    ja: 準備
-    fr: "Disponibilité"
-  tab_privacy:
-    en: Privacy
-    zh-CN: 隐私
-    zh-TW: 隱私
-    ja: プライバシー
-    fr: "Confidentialité"
   tab_chat:
     en: Chat
     zh-CN: 聊天
     zh-TW: 聊天
     ja: チャット
     fr: "Chat"
+  tab_appearance:
+    en: Appearance
+    zh-CN: 外观
+    zh-TW: 外觀
+    ja: 外観
+    fr: "Apparence"
+  tab_general:
+    en: General
+    zh-CN: 常规
+    zh-TW: 一般
+    ja: 一般
+    fr: "Général"
+  tab_privacy:
+    en: Privacy
+    zh-CN: 隐私
+    zh-TW: 隱私
+    ja: プライバシー
+    fr: "Confidentialité"
   tab_osd:
     en: OSD
     zh-CN: OSD
     zh-TW: OSD
     ja: OSD
     fr: "OSD"
-  tab_misc:
-    en: Misc
-    zh-CN: 杂项
-    zh-TW: 雜項
-    ja: その他
-    fr: "Divers"
+  section_playback:
+    en: Readiness & playback
+    zh-CN: 就绪与播放
+    zh-TW: 就緒與播放
+    ja: 準備と再生
+    fr: "Disponibilité et lecture"
+  section_thresholds:
+    en: Advanced thresholds
+    zh-CN: 高级阈值
+    zh-TW: 進階閾值
+    ja: 詳細なしきい値
+    fr: "Seuils avancés"
+  section_advanced:
+    en: Advanced
+    zh-CN: 高级
+    zh-TW: 進階
+    ja: 詳細
+    fr: "Avancé"
+  section_input_style:
+    en: Input style
+    zh-CN: 输入样式
+    zh-TW: 輸入樣式
+    ja: 入力スタイル
+    fr: "Style de saisie"
+  section_output_style:
+    en: Output style
+    zh-CN: 输出样式
+    zh-TW: 輸出樣式
+    ja: 出力スタイル
+    fr: "Style d’affichage"
+  section_margins:
+    en: Margins
+    zh-CN: 边距
+    zh-TW: 邊距
+    ja: 余白
+    fr: "Marges"
   saving:
     en: Saving...
     zh-CN: 正在保存...
@@ -853,6 +889,12 @@ settings:
     zh-TW: 啟動播放器時使用的參數
     ja: プレイヤー起動時に適用する引数
     fr: "Arguments appliqués au lancement du lecteur"
+  thresholds_desc:
+    en: Compensation applied when playback drifts out of sync. The defaults work for most setups.
+    zh-CN: 控制播放不同步时的补偿行为，默认值适合绝大多数情况。
+    zh-TW: 控制播放不同步時的補償行為，預設值適合絕大多數情況。
+    ja: 再生がずれた際の補正動作です。既定値のままでほとんどの環境で問題ありません。
+    fr: "Compensation appliquée quand la lecture se désynchronise. Les valeurs par défaut conviennent dans la plupart des cas."
   seek_rewind:
     en: Seek Threshold Rewind (seconds)
     zh-CN: 快退阈值（秒）
