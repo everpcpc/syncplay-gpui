@@ -25,6 +25,12 @@ Syncplay is a modern, cross-platform Syncplay client written entirely in Rust. I
 - **Rust**: 1.85 or later
 - **MPV**: Latest version with JSON IPC support
 
+For system IME input (Chinese, Japanese, etc.) in the mpv chat overlay, use
+mpv 0.40 or newer with a video output that supports your IME. Press Enter to
+open chat before composing text. Closing chat restores the previous `input-ime`
+setting. mpv 0.39 supports Unicode text events but lacks the IME toggle;
+older versions keep the legacy per-key input path.
+
 ### Development
 
 ```bash
@@ -43,6 +49,13 @@ make test
 
 # Lint
 make lint
+```
+
+The mpv chat input regression tests can also run without a player, using Lua
+5.1 or newer from the repository root:
+
+```bash
+lua crates/core/tests/syncplayintf_input.lua
 ```
 
 ## Architecture
