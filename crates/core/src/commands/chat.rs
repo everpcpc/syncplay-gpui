@@ -5,6 +5,7 @@ use crate::client::chat::ChatCommand;
 use crate::commands::connection::{
     reidentify_as_controller, reset_room_sync_state, set_authoritative_room, store_control_password,
 };
+use crate::commands::room::{create_managed_room, identify_as_controller};
 use crate::network::messages::ProtocolMessage;
 use crate::network::messages::{
     ChatMessage as ProtocolChatMessage, ReadyState, RoomInfo, SetMessage,
@@ -221,6 +222,14 @@ pub async fn send_chat_message_inner(state: &Arc<AppState>, message: &str) -> Re
                 };
                 send_to_server_arc(state, set_msg)?;
             }
+            ChatCommand::Create(room) => {
+                tracing::info!("Command: Create managed room {}", room);
+                create_managed_room(room, state).await?;
+            }
+            ChatCommand::Auth(password) => {
+                tracing::info!("Command: Identify as room operator");
+                identify_as_controller(password, state).await?;
+            }
             ChatCommand::Unknown(msg) => {
                 tracing::warn!("Unknown command: {}", msg);
                 state.chat.add_error_message(msg.clone());
@@ -339,6 +348,82 @@ mod tests {
             ProtocolMessage::Set { Set }
                 if Set.room.as_ref().map(|room| room.name.as_str()) == Some(room)
         ));
+
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn create_command_sends_controller_auth_with_generated_password() {
+        let state = AppState::new();
+        {
+            let mut features = state.server_features.lock();
+            features.chat = true;
+            features.managed_rooms = true;
+        }
+        state.client_state.set_server_version("1.7.0".to_string());
+        let mut server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        let (_receiver, _) = connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        connection.set_authenticated();
+        *state.connection.lock() = Some(connection);
+
+        send_chat_message_inner(&state, "/create myroom")
+            .await
+            .unwrap();
+        let message = timeout(Duration::from_secs(2), server.next_received())
+            .await
+            .unwrap()
+            .unwrap();
+        let ProtocolMessage::Set { Set } = message else {
+            panic!("expected Set message");
+        };
+        let auth = Set.controller_auth.expect("expected controller auth");
+        assert_eq!(auth.room.as_deref(), Some("myroom"));
+        let password = auth.password.expect("expected generated password");
+        let bytes = password.as_bytes();
+        assert_eq!(bytes.len(), 10);
+        assert!(bytes[0].is_ascii_uppercase() && bytes[1].is_ascii_uppercase());
+        assert_eq!(bytes[2], b'-');
+        assert_eq!(bytes[6], b'-');
+
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn auth_command_sends_controller_auth_with_given_password() {
+        let state = AppState::new();
+        {
+            let mut features = state.server_features.lock();
+            features.chat = true;
+            features.managed_rooms = true;
+        }
+        state.client_state.set_server_version("1.7.0".to_string());
+        set_authoritative_room(&state, "myroom".to_string());
+        let mut server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        let (_receiver, _) = connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        connection.set_authenticated();
+        *state.connection.lock() = Some(connection);
+
+        send_chat_message_inner(&state, "/auth AB-123-456")
+            .await
+            .unwrap();
+        let message = timeout(Duration::from_secs(2), server.next_received())
+            .await
+            .unwrap()
+            .unwrap();
+        let ProtocolMessage::Set { Set } = message else {
+            panic!("expected Set message");
+        };
+        let auth = Set.controller_auth.expect("expected controller auth");
+        assert_eq!(auth.room.as_deref(), Some("myroom"));
+        assert_eq!(auth.password.as_deref(), Some("AB-123-456"));
 
         server.close();
     }

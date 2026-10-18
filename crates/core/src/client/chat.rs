@@ -80,6 +80,10 @@ pub enum ChatCommand {
     SetReady(String),
     /// Set another user as not ready
     SetNotReady(String),
+    /// Create a managed room: /create <name>
+    Create(String),
+    /// Identify as room operator: /auth <password>
+    Auth(String),
     /// Unknown command
     Unknown(String),
 }
@@ -125,6 +129,20 @@ impl ChatCommand {
                     ))
                 }
             }
+            "/create" | "/c" => {
+                if parts.len() > 1 {
+                    Some(ChatCommand::Create(parts[1..].join(" ")))
+                } else {
+                    Some(ChatCommand::Unknown("Usage: /create <name>".to_string()))
+                }
+            }
+            "/auth" | "/a" => {
+                if parts.len() > 1 {
+                    Some(ChatCommand::Auth(parts[1..].join(" ")))
+                } else {
+                    Some(ChatCommand::Unknown("Usage: /auth <password>".to_string()))
+                }
+            }
             _ => Some(ChatCommand::Unknown(format!(
                 "Unknown command: {}",
                 command
@@ -141,6 +159,8 @@ impl ChatCommand {
 /unready - Mark yourself as not ready
 /setready <name> or /sr <name> - Set user as ready
 /setnotready <name> or /sn <name> - Set user as not ready
+/create <name> or /c <name> - Create a managed room (password is generated for you)
+/auth <password> or /a <password> - Identify as room operator
 /help or /h or /? - Show this help message"#
             .to_string()
     }
@@ -261,6 +281,30 @@ mod tests {
 
         let cmd = ChatCommand::parse("/l");
         assert_eq!(cmd, Some(ChatCommand::List));
+    }
+
+    #[test]
+    fn test_chat_command_parse_create() {
+        let cmd = ChatCommand::parse("/create my room");
+        assert_eq!(cmd, Some(ChatCommand::Create("my room".to_string())));
+
+        let cmd = ChatCommand::parse("/c myroom");
+        assert_eq!(cmd, Some(ChatCommand::Create("myroom".to_string())));
+
+        let cmd = ChatCommand::parse("/create");
+        assert!(matches!(cmd, Some(ChatCommand::Unknown(_))));
+    }
+
+    #[test]
+    fn test_chat_command_parse_auth() {
+        let cmd = ChatCommand::parse("/auth AB-123-456");
+        assert_eq!(cmd, Some(ChatCommand::Auth("AB-123-456".to_string())));
+
+        let cmd = ChatCommand::parse("/a AB-123-456");
+        assert_eq!(cmd, Some(ChatCommand::Auth("AB-123-456".to_string())));
+
+        let cmd = ChatCommand::parse("/auth");
+        assert!(matches!(cmd, Some(ChatCommand::Unknown(_))));
     }
 
     #[test]
