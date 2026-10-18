@@ -75,6 +75,9 @@ pub struct UserPreferences {
     pub theme: String,
     #[serde(default)]
     pub transparency_mode: TransparencyMode,
+    // UI locale code ("en", "zh-CN", "zh-TW", "ja"); unknown codes fall back to en at lookup time
+    #[serde(default = "default_language")]
+    pub language: String,
 
     // Sync thresholds
     pub seek_threshold_rewind: f64,
@@ -188,6 +191,32 @@ fn default_media_index_timeout_seconds() -> u64 {
     DEFAULT_MEDIA_INDEX_TIMEOUT_SECONDS
 }
 
+// First run (or a config from before this field existed) follows the system
+// locale; an explicit picker choice is persisted and never re-detected.
+fn default_language() -> String {
+    let locale = sys_locale::get_locale().unwrap_or_default();
+    map_system_language(&locale).to_string()
+}
+
+fn map_system_language(locale: &str) -> &'static str {
+    let normalized = locale.to_lowercase().replace('_', "-");
+    if normalized.starts_with("zh") {
+        if normalized.contains("hant")
+            || normalized.contains("-tw")
+            || normalized.contains("-hk")
+            || normalized.contains("-mo")
+        {
+            "zh-TW"
+        } else {
+            "zh-CN"
+        }
+    } else if normalized.starts_with("ja") {
+        "ja"
+    } else {
+        "en"
+    }
+}
+
 impl Default for UserPreferences {
     fn default() -> Self {
         Self {
@@ -196,6 +225,7 @@ impl Default for UserPreferences {
             room_list: Vec::new(),
             theme: "light".to_string(),
             transparency_mode: TransparencyMode::Off,
+            language: default_language(),
 
             // Default sync thresholds (from sync engine)
             seek_threshold_rewind: 4.0,
@@ -445,6 +475,23 @@ mod tests {
             .public_servers
             .iter()
             .any(|entry| entry.address == "syncplay.pl:8999"));
+    }
+
+    #[test]
+    fn test_system_language_mapping() {
+        assert_eq!(map_system_language("zh-Hans-CN"), "zh-CN");
+        assert_eq!(map_system_language("zh-CN"), "zh-CN");
+        assert_eq!(map_system_language("zh-SG"), "zh-CN");
+        assert_eq!(map_system_language("zh"), "zh-CN");
+        assert_eq!(map_system_language("zh-Hant-TW"), "zh-TW");
+        assert_eq!(map_system_language("zh-TW"), "zh-TW");
+        assert_eq!(map_system_language("zh-HK"), "zh-TW");
+        assert_eq!(map_system_language("zh-MO"), "zh-TW");
+        assert_eq!(map_system_language("zh_Hant_TW"), "zh-TW");
+        assert_eq!(map_system_language("ja-JP"), "ja");
+        assert_eq!(map_system_language("en-US"), "en");
+        assert_eq!(map_system_language("fr-FR"), "en");
+        assert_eq!(map_system_language(""), "en");
     }
 
     #[test]

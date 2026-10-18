@@ -17,6 +17,7 @@ embed-resource = "3.0"
 
 [dependencies]
 gpui-kit = "0.7"
+rust-i18n = "4"
 syncplay-core = { path = "../core" }
 tokio = { version = "1.35", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }

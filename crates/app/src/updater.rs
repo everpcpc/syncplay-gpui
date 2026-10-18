@@ -1,6 +1,8 @@
 use self_update::backends::github;
 use self_update::{cargo_crate_version, VersionStatus};
 
+use rust_i18n::t;
+
 const REPO_OWNER: &str = "everpcpc";
 const REPO_NAME: &str = "syncplay-gpui";
 
@@ -45,8 +47,10 @@ pub async fn install_update() -> Result<String, String> {
     let status = updater.update_async().await.map_err(|e| e.to_string())?;
     match status {
         VersionStatus::Updated(version) => Ok(version),
-        VersionStatus::UpToDate(version) => Err(format!("already up to date ({version})")),
-        _ => Err("unexpected update status".to_string()),
+        VersionStatus::UpToDate(version) => {
+            Err(t!("updater.already_current", version = version).to_string())
+        }
+        _ => Err(t!("updater.unexpected_status").to_string()),
     }
 }
 

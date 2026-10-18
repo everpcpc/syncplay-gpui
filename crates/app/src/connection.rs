@@ -9,6 +9,7 @@ use gpui_kit::{
     div, prelude::FluentBuilder as _, px, AppContext as _, Context, Entity, FontWeight,
     IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window,
 };
+use rust_i18n::t;
 use syncplay_core::config::{ServerConfig, SyncplayConfig};
 
 use crate::settings::{open_settings_dialog_at, SettingsTab};
@@ -40,7 +41,7 @@ impl ConnectPanel {
             input
         });
         let username = cx.new(|cx| {
-            let mut input = InputState::new(window, cx).placeholder("Your username");
+            let mut input = InputState::new(window, cx).placeholder(t!("conn.username_ph"));
             input.set_value(config.user.username.clone(), window, cx);
             input
         });
@@ -51,7 +52,7 @@ impl ConnectPanel {
         });
         let password = cx.new(|cx| {
             let mut input = InputState::new(window, cx)
-                .placeholder("Server password")
+                .placeholder(t!("conn.password_ph"))
                 .masked(true);
             input.set_value(
                 config.server.password.clone().unwrap_or_default(),
@@ -102,19 +103,19 @@ impl ConnectPanel {
     fn connect(&mut self, cx: &mut Context<Self>) {
         let username = self.username.read(cx).value().trim().to_string();
         if username.is_empty() {
-            self.error = Some("Username is required".into());
+            self.error = Some(t!("conn.username_required").into());
             cx.notify();
             return;
         }
         let config = self.store.read(cx).config.clone();
         if player_selection_missing(&config) {
-            self.error = Some("Select a media player in Settings before connecting.".into());
+            self.error = Some(t!("conn.player_required").into());
             cx.notify();
             return;
         }
         let address = self.address.read(cx).value().to_string();
         let Some((host, port)) = parse_address(&address) else {
-            self.error = Some("Address must be in host:port format".into());
+            self.error = Some(t!("conn.address_invalid").into());
             cx.notify();
             return;
         };
@@ -259,31 +260,35 @@ impl Render for ConnectPanel {
                                 div()
                                     .text_xl()
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Connect to a room"),
+                                    .child(t!("conn.title")),
                             )
                             .child(
                                 div()
                                     .text_sm()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("Join a Syncplay server to watch and chat together."),
+                                    .child(t!("conn.subtitle")),
                             ),
                     )
                     .child(
                         v_form()
                             .child(
                                 field()
-                                    .label("Address (host:port)")
+                                    .label(t!("conn.address_label").to_string())
                                     .child(self.render_address_input(cx)),
                             )
                             .child(
                                 field()
-                                    .label("Username *")
+                                    .label(t!("conn.username_label").to_string())
                                     .child(Input::new(&self.username)),
                             )
-                            .child(field().label("Room").child(self.render_room_input(cx)))
                             .child(
                                 field()
-                                    .label("Password (optional)")
+                                    .label(t!("conn.room_label").to_string())
+                                    .child(self.render_room_input(cx)),
+                            )
+                            .child(
+                                field()
+                                    .label(t!("conn.password_label").to_string())
                                     .child(Input::new(&self.password)),
                             ),
                     )
@@ -305,13 +310,13 @@ impl Render for ConnectPanel {
                                         .flex_1()
                                         .text_sm()
                                         .text_color(cx.theme().foreground)
-                                        .child("Select a media player before connecting."),
+                                        .child(t!("conn.player_warning")),
                                 )
                                 .child(
                                     Button::new("open-player-settings")
                                         .secondary()
                                         .xsmall()
-                                        .label("Choose Player")
+                                        .label(t!("conn.choose_player"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             open_settings_dialog_at(
                                                 window,
@@ -351,9 +356,9 @@ impl Render for ConnectPanel {
                             .large()
                             .w_full()
                             .label(if connecting {
-                                "Connecting…"
+                                t!("conn.connecting")
                             } else {
-                                "Connect"
+                                t!("common.connect")
                             })
                             .disabled(connecting || player_missing)
                             .on_click(cx.listener(|this, _, _, cx| this.connect(cx))),

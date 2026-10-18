@@ -10,6 +10,7 @@ use gpui_kit::{
     FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
     SharedString, Styled as _, Subscription, Window,
 };
+use rust_i18n::t;
 
 use crate::events::UserInfoEvent;
 use crate::rooms::RoomManagerDialog;
@@ -36,7 +37,10 @@ impl UserListPanel {
         let dialog_view = self.room_manager.clone();
         dialog_view.update(cx, |dialog, cx| dialog.prepare(window, cx));
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title("Rooms").w(px(672.)).child(dialog_view.clone())
+            dialog
+                .title(t!("users.rooms_title"))
+                .w(px(672.))
+                .child(dialog_view.clone())
         });
     }
 
@@ -84,7 +88,11 @@ impl UserListPanel {
                                 IconName::CircleDashed
                             })
                             .tooltip_placement(Placement::Right)
-                            .tooltip(if is_ready { "Ready" } else { "Not ready" })
+                            .tooltip(if is_ready {
+                                t!("users.ready")
+                            } else {
+                                t!("users.not_ready")
+                            })
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.store.read(cx).set_ready(!is_ready);
                             }));
@@ -100,7 +108,7 @@ impl UserListPanel {
                             .small()
                             .icon(IconName::PencilLine)
                             .tooltip_placement(Placement::Right)
-                            .tooltip("Rooms")
+                            .tooltip(t!("users.rooms_title"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_room_manager(window, cx)
                             })),
@@ -168,7 +176,7 @@ impl UserListPanel {
                                         .flex_shrink_0()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("you"),
+                                        .child(t!("users.you")),
                                 )
                             }),
                     )
@@ -245,9 +253,9 @@ impl Render for UserListPanel {
         }
 
         let empty_hint: Option<SharedString> = if !connected {
-            Some("Not connected".into())
+            Some(t!("common.not_connected").to_string().into())
         } else if sorted.is_empty() {
-            Some("No users in room".into())
+            Some(t!("users.no_users").to_string().into())
         } else {
             None
         };
@@ -267,7 +275,7 @@ impl Render for UserListPanel {
                             .text_xs()
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().sidebar_foreground.opacity(0.65))
-                            .child("Users"),
+                            .child(t!("users.title")),
                     )
                     .when(connected, |this| {
                         this.child(
@@ -327,7 +335,7 @@ fn current_room(store: &AppStore) -> SharedString {
             let default = store.config.user.default_room.clone();
             (!default.is_empty()).then_some(default)
         })
-        .unwrap_or_else(|| "Room".to_string())
+        .unwrap_or_else(|| t!("users.room_fallback").to_string())
         .into()
 }
 

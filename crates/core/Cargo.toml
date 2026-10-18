@@ -34,6 +34,7 @@ urlencoding = "2.1"
 tempfile = "3.8"
 rand = "0.8"
 dirs = "5"
+sys-locale = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [

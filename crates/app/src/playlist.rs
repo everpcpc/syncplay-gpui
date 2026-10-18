@@ -19,6 +19,7 @@ use gpui_kit::{
     ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
     Subscription, Window,
 };
+use rust_i18n::t;
 use syncplay_core::config::SyncplayConfig;
 
 use crate::store::AppStore;
@@ -115,7 +116,7 @@ impl PlaylistPanel {
         dialog_view.update(cx, |dialog, cx| dialog.prepare(window, cx));
         window.open_dialog(cx, move |dialog, _, _| {
             dialog
-                .title("Media Directories")
+                .title(t!("playlist.media_dirs_title"))
                 .w(px(672.))
                 .child(dialog_view.clone())
         });
@@ -126,7 +127,7 @@ impl PlaylistPanel {
         dialog_view.update(cx, |dialog, cx| dialog.prepare(window, cx));
         window.open_dialog(cx, move |dialog, _, _| {
             dialog
-                .title("Trusted Domains")
+                .title(t!("playlist.trusted_domains_title"))
                 .w(px(672.))
                 .child(dialog_view.clone())
         });
@@ -153,7 +154,7 @@ impl PlaylistPanel {
             window.push_notification(
                 (
                     NotificationType::Warning,
-                    "Set media directories in Settings before adding files",
+                    t!("playlist.set_dirs_first").to_string(),
                 ),
                 cx,
             );
@@ -169,9 +170,9 @@ impl PlaylistPanel {
         cx.notify();
         let mut picker = rfd::AsyncFileDialog::new()
             .set_parent(window)
-            .add_filter("Video", &VIDEO_EXTENSIONS)
-            .add_filter("Audio", &AUDIO_EXTENSIONS)
-            .add_filter("All files", &["*"]);
+            .add_filter(t!("playlist.filter_video").to_string(), &VIDEO_EXTENSIONS)
+            .add_filter(t!("playlist.filter_audio").to_string(), &AUDIO_EXTENSIONS)
+            .add_filter(t!("playlist.filter_all").to_string(), &["*"]);
         if let Some(directory) = default_directory {
             picker = picker.set_directory(directory);
         }
@@ -197,7 +198,7 @@ impl PlaylistPanel {
             window.push_notification(
                 (
                     NotificationType::Error,
-                    "Selected file is outside the media directories",
+                    t!("playlist.file_outside_dirs").to_string(),
                 ),
                 cx,
             );
@@ -293,10 +294,11 @@ impl PlaylistPanel {
         let connected = store.is_connected();
         let item_count = store.playlist.items.len();
         let refreshing = store.media_index_refreshing;
-        let scan_label = format!(
-            "Scan Media Directory (last: {})",
-            format_last_scan(store.media_index_version)
-        );
+        let scan_label = t!(
+            "playlist.scan_menu",
+            time = format_last_scan(store.media_index_version)
+        )
+        .to_string();
 
         let menu_focus = self.menu_focus.clone();
         h_flex()
@@ -312,7 +314,7 @@ impl PlaylistPanel {
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().sidebar_foreground.opacity(0.65))
-                    .child(format!("Playlist · {item_count}")),
+                    .child(t!("playlist.title", count = item_count)),
             )
             .child(
                 Button::new("add-playlist-item")
@@ -320,7 +322,7 @@ impl PlaylistPanel {
                     .small()
                     .icon(IconName::Plus)
                     .tooltip_placement(Placement::Right)
-                    .tooltip("Add file")
+                    .tooltip(t!("playlist.add_file"))
                     .disabled(!connected || self.file_picker_open)
                     .on_click(cx.listener(|this, _, window, cx| this.handle_add_file(window, cx))),
             )
@@ -330,7 +332,7 @@ impl PlaylistPanel {
                     .small()
                     .icon(IconName::Ellipsis)
                     .tooltip_placement(Placement::Right)
-                    .tooltip("Playlist actions")
+                    .tooltip(t!("playlist.actions"))
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                         menu.action_context(menu_focus.clone())
                             .menu_with_disabled(
@@ -339,11 +341,17 @@ impl PlaylistPanel {
                                 refreshing,
                             )
                             .separator()
-                            .menu("Media Directories…", Box::new(OpenMediaDirectories))
-                            .menu("Trusted Domains…", Box::new(OpenTrustedDomains))
+                            .menu(
+                                t!("playlist.media_dirs_title"),
+                                Box::new(OpenMediaDirectories),
+                            )
+                            .menu(
+                                t!("playlist.trusted_domains_title"),
+                                Box::new(OpenTrustedDomains),
+                            )
                             .separator()
                             .menu_with_disabled(
-                                "Clear Playlist",
+                                t!("playlist.menu_clear"),
                                 Box::new(ClearPlaylist),
                                 !connected || item_count == 0,
                             )
@@ -373,7 +381,7 @@ impl PlaylistPanel {
 
         let tooltip_text: SharedString = resolved_path
             .clone()
-            .unwrap_or_else(|| "Unresolved path".to_string())
+            .unwrap_or_else(|| t!("playlist.unresolved_path").to_string())
             .into();
 
         let content = Button::new(("playlist-item", ix))
@@ -425,7 +433,7 @@ impl PlaylistPanel {
                         .rounded_full()
                         .bg(cx.theme().muted)
                         .text_color(cx.theme().danger)
-                        .child("Unavailable"),
+                        .child(t!("playlist.unavailable")),
                 )
             })
             .tooltip_placement(Placement::Top)
@@ -497,7 +505,7 @@ impl PlaylistPanel {
                             .small()
                             .icon(IconName::Play)
                             .tooltip_placement(Placement::Right)
-                            .tooltip("Play")
+                            .tooltip(t!("playlist.play"))
                             .disabled(!connected || !available)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.play_item(ix, cx);
@@ -509,7 +517,7 @@ impl PlaylistPanel {
                             .small()
                             .icon(IconName::Trash)
                             .tooltip_placement(Placement::Right)
-                            .tooltip("Remove")
+                            .tooltip(t!("common.remove"))
                             .text_color(cx.theme().danger)
                             .disabled(!connected)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -557,7 +565,7 @@ impl PlaylistPanel {
                             .small()
                             .icon(IconName::SkipBack)
                             .tooltip_placement(Placement::Right)
-                            .tooltip("Previous")
+                            .tooltip(t!("playlist.previous"))
                             .disabled(previous_disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.store.read(cx).update_playlist("previous", None, None);
@@ -581,7 +589,7 @@ impl PlaylistPanel {
                             .small()
                             .icon(IconName::SkipForward)
                             .tooltip_placement(Placement::Right)
-                            .tooltip("Next")
+                            .tooltip(t!("playlist.next"))
                             .disabled(next_disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.store.read(cx).update_playlist("next", None, None);
@@ -598,9 +606,9 @@ impl PlaylistPanel {
                             .icon(IconName::UsersRound)
                             .tooltip_placement(Placement::Right)
                             .tooltip(if shared_enabled {
-                                "Shared playlists on"
+                                t!("playlist.shared_on")
                             } else {
-                                "Shared playlists off"
+                                t!("playlist.shared_off")
                             })
                             .when(shared_enabled, |this| this.text_color(cx.theme().info))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -616,9 +624,9 @@ impl PlaylistPanel {
                             .icon(IconName::Repeat)
                             .tooltip_placement(Placement::Right)
                             .tooltip(if loop_playlist {
-                                "Loop playlist on"
+                                t!("playlist.loop_on")
                             } else {
-                                "Loop playlist off"
+                                t!("playlist.loop_off")
                             })
                             .when(loop_playlist, |this| this.text_color(cx.theme().info))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -634,9 +642,9 @@ impl PlaylistPanel {
                             .icon(IconName::Repeat1)
                             .tooltip_placement(Placement::Right)
                             .tooltip(if loop_single {
-                                "Loop file on"
+                                t!("playlist.loop_file_on")
                             } else {
-                                "Loop file off"
+                                t!("playlist.loop_file_off")
                             })
                             .when(loop_single, |this| this.text_color(cx.theme().info))
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -705,14 +713,14 @@ impl Render for PlaylistPanel {
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child("No items in playlist"),
+                                        .child(t!("playlist.empty")),
                                 )
                                 .child(
                                     div()
                                         .text_xs()
                                         .text_color(cx.theme().muted_foreground.opacity(0.7))
                                         .text_center()
-                                        .child("Drag files here or click + to add"),
+                                        .child(t!("playlist.empty_hint")),
                                 ),
                         )
                     })
@@ -805,11 +813,11 @@ fn parent_directory(path: &str) -> Option<String> {
 
 fn format_last_scan(timestamp_ms: i64) -> String {
     if timestamp_ms <= 0 {
-        return "Never".to_string();
+        return t!("playlist.never").to_string();
     }
     chrono::DateTime::from_timestamp_millis(timestamp_ms)
         .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
-        .unwrap_or_else(|| "Never".to_string())
+        .unwrap_or_else(|| t!("playlist.never").to_string())
 }
 
 // ── Media directories dialog ────────────────────────────────────────────────
@@ -892,7 +900,7 @@ impl MediaDirectoriesDialog {
             window.push_notification(
                 (
                     NotificationType::Warning,
-                    "Media scan timeout must be a positive whole number",
+                    t!("playlist.scan_timeout_invalid").to_string(),
                 ),
                 cx,
             );
@@ -922,7 +930,10 @@ impl MediaDirectoriesDialog {
             .contains(&directory)
         {
             window.push_notification(
-                (NotificationType::Warning, "Media directory already exists"),
+                (
+                    NotificationType::Warning,
+                    t!("playlist.dir_exists").to_string(),
+                ),
                 cx,
             );
             return;
@@ -968,7 +979,10 @@ impl MediaDirectoriesDialog {
             .contains(&path)
         {
             window.push_notification(
-                (NotificationType::Warning, "Media directory already exists"),
+                (
+                    NotificationType::Warning,
+                    t!("playlist.dir_exists").to_string(),
+                ),
                 cx,
             );
             return;
@@ -1005,7 +1019,7 @@ impl Render for MediaDirectoriesDialog {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Manage directories used for playlist matching."),
+                    .child(t!("playlist.dirs_description")),
             )
             .child(
                 v_flex()
@@ -1014,7 +1028,7 @@ impl Render for MediaDirectoriesDialog {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Scan timeout"),
+                            .child(t!("playlist.scan_timeout")),
                     )
                     .child(
                         h_flex()
@@ -1024,7 +1038,7 @@ impl Render for MediaDirectoriesDialog {
                                 div()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("Seconds allowed for media directory scanning."),
+                                    .child(t!("playlist.scan_timeout_desc")),
                             ),
                     ),
             )
@@ -1035,7 +1049,7 @@ impl Render for MediaDirectoriesDialog {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Add directory"),
+                            .child(t!("playlist.add_directory")),
                     )
                     .child(
                         h_flex()
@@ -1044,7 +1058,7 @@ impl Render for MediaDirectoriesDialog {
                             .child(
                                 Button::new("add-media-directory")
                                     .primary()
-                                    .label("Add")
+                                    .label(t!("common.add"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.add_directory(window, cx)
                                     })),
@@ -1052,7 +1066,7 @@ impl Render for MediaDirectoriesDialog {
                             .child(
                                 Button::new("browse-media-directory")
                                     .secondary()
-                                    .label("Browse")
+                                    .label(t!("playlist.browse"))
                                     .disabled(self.directory_picker_open)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.browse_directory(window, cx)
@@ -1067,14 +1081,14 @@ impl Render for MediaDirectoriesDialog {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Current directories"),
+                            .child(t!("playlist.current_dirs")),
                     )
                     .when(directories.is_empty(), |this| {
                         this.child(
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("No media directories added."),
+                                .child(t!("playlist.no_dirs")),
                         )
                     })
                     .children(directories.iter().enumerate().map(|(ix, directory)| {
@@ -1105,7 +1119,7 @@ impl Render for MediaDirectoriesDialog {
                                             .xsmall()
                                             .icon(IconName::ChevronUp)
                                             .tooltip_placement(Placement::Right)
-                                            .tooltip("Move up")
+                                            .tooltip(t!("playlist.move_up"))
                                             .disabled(ix == 0)
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.move_directory(ix, true, cx)
@@ -1117,7 +1131,7 @@ impl Render for MediaDirectoriesDialog {
                                             .xsmall()
                                             .icon(IconName::ChevronDown)
                                             .tooltip_placement(Placement::Right)
-                                            .tooltip("Move down")
+                                            .tooltip(t!("playlist.move_down"))
                                             .disabled(ix + 1 >= directory_count)
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.move_directory(ix, false, cx)
@@ -1127,7 +1141,7 @@ impl Render for MediaDirectoriesDialog {
                                         Button::new(("remove-directory", ix))
                                             .ghost()
                                             .xsmall()
-                                            .label("Remove")
+                                            .label(t!("common.remove"))
                                             .text_color(cx.theme().danger)
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 this.update_config(cx, |config| {
@@ -1142,7 +1156,7 @@ impl Render for MediaDirectoriesDialog {
                         div()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
-                            .child("Files are matched locally against these directories."),
+                            .child(t!("playlist.dirs_note")),
                     ),
             )
     }
@@ -1204,7 +1218,10 @@ impl TrustedDomainsDialog {
             .contains(&domain)
         {
             window.push_notification(
-                (NotificationType::Warning, "Trusted domain already exists"),
+                (
+                    NotificationType::Warning,
+                    t!("playlist.domain_exists").to_string(),
+                ),
                 cx,
             );
             self.domain_input.update(cx, |input, cx| {
@@ -1233,11 +1250,11 @@ impl Render for TrustedDomainsDialog {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Control which URLs can be opened."),
+                    .child(t!("playlist.domains_description")),
             )
             .child(
                 Checkbox::new("only-switch-trusted")
-                    .label("Only switch to trusted domains")
+                    .label(t!("playlist.only_trusted").to_string())
                     .checked(only_trusted)
                     .on_change(cx.listener(move |this, checked, _, cx| {
                         let checked = *checked;
@@ -1253,7 +1270,7 @@ impl Render for TrustedDomainsDialog {
                         div()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
-                            .child("Trusted domains"),
+                            .child(t!("playlist.trusted_domains")),
                     )
                     .child(
                         h_flex()
@@ -1262,7 +1279,7 @@ impl Render for TrustedDomainsDialog {
                             .child(
                                 Button::new("add-trusted-domain")
                                     .primary()
-                                    .label("Add")
+                                    .label(t!("common.add"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.add_domain(window, cx)
                                     })),
@@ -1273,7 +1290,7 @@ impl Render for TrustedDomainsDialog {
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("No trusted domains added."),
+                                .child(t!("playlist.no_domains")),
                         )
                     })
                     .children(domains.iter().enumerate().map(|(ix, domain)| {
@@ -1296,7 +1313,7 @@ impl Render for TrustedDomainsDialog {
                                 Button::new(("remove-domain", ix))
                                     .ghost()
                                     .xsmall()
-                                    .label("Remove")
+                                    .label(t!("common.remove"))
                                     .text_color(cx.theme().danger)
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.update_config(cx, |config| {

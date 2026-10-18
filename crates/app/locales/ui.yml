@@ -1,0 +1,1086 @@
+_version: 2
+common:
+  add:
+    en: Add
+    zh-CN: 添加
+    zh-TW: 新增
+    ja: 追加
+  remove:
+    en: Remove
+    zh-CN: 移除
+    zh-TW: 移除
+    ja: 削除
+  connect:
+    en: Connect
+    zh-CN: 连接
+    zh-TW: 連線
+    ja: 接続
+  not_connected:
+    en: Not connected
+    zh-CN: 未连接
+    zh-TW: 未連線
+    ja: 未接続
+root:
+  disconnected:
+    en: Disconnected from server
+    zh-CN: 已从服务器断开
+    zh-TW: 已從伺服器斷線
+    ja: サーバーから切断されました
+  hide_playlist:
+    en: Hide playlist
+    zh-CN: 隐藏播放列表
+    zh-TW: 隱藏播放清單
+    ja: プレイリストを隠す
+  show_playlist:
+    en: Show playlist
+    zh-CN: 显示播放列表
+    zh-TW: 顯示播放清單
+    ja: プレイリストを表示
+  theme_light:
+    en: Theme light
+    zh-CN: 浅色主题
+    zh-TW: 淺色主題
+    ja: ライトテーマ
+  theme_dark:
+    en: Theme dark
+    zh-CN: 深色主题
+    zh-TW: 深色主題
+    ja: ダークテーマ
+  disconnect_tooltip:
+    en: Disconnect from server
+    zh-CN: 断开服务器连接
+    zh-TW: 中斷伺服器連線
+    ja: サーバーから切断
+  in_sync:
+    en: in sync
+    zh-CN: 已同步
+    zh-TW: 已同步
+    ja: 同期中
+  behind:
+    en: behind %{n}s
+    zh-CN: 落后 %{n} 秒
+    zh-TW: 落後 %{n} 秒
+    ja: "%{n} 秒遅れ"
+  ahead:
+    en: ahead %{n}s
+    zh-CN: 超前 %{n} 秒
+    zh-TW: 超前 %{n} 秒
+    ja: "%{n} 秒先行"
+  connected_to:
+    en: Connected to %{server}
+    zh-CN: 已连接到 %{server}
+    zh-TW: 已連線到 %{server}
+    ja: "%{server} に接続しました"
+  connected:
+    en: Connected
+    zh-CN: 已连接
+    zh-TW: 已連線
+    ja: 接続中
+  indexing:
+    en: Indexing media…
+    zh-CN: 正在索引媒体…
+    zh-TW: 正在索引媒體…
+    ja: メディアを索引中…
+  check_updates:
+    en: Check for updates
+    zh-CN: 检查更新
+    zh-TW: 檢查更新
+    ja: 更新を確認
+  checking_updates:
+    en: Checking for updates…
+    zh-CN: 正在检查更新…
+    zh-TW: 正在檢查更新…
+    ja: 更新を確認中…
+  download_install:
+    en: Download and install
+    zh-CN: 下载并安装
+    zh-TW: 下載並安裝
+    ja: ダウンロードしてインストール
+  updating:
+    en: Updating…
+    zh-CN: 正在更新…
+    zh-TW: 正在更新…
+    ja: 更新中…
+  restart:
+    en: Restart
+    zh-CN: 重启
+    zh-TW: 重新啟動
+    ja: 再起動
+  restart_to_finish:
+    en: Restart to finish v%{version}
+    zh-CN: 重启以完成 v%{version} 的更新
+    zh-TW: 重新啟動以完成 v%{version} 的更新
+    ja: 再起動して v%{version} の更新を完了
+  no_file:
+    en: No file loaded
+    zh-CN: 未加载文件
+    zh-TW: 未載入檔案
+    ja: ファイルが読み込まれていません
+chat:
+  placeholder:
+    en: Type a message... (or /help for commands)
+    zh-CN: 输入消息...（或输入 /help 查看命令）
+    zh-TW: 輸入訊息...（或輸入 /help 檢視指令）
+    ja: メッセージを入力...（/help でコマンド一覧）
+  input_disabled:
+    en: Chat input disabled
+    zh-CN: 聊天输入已禁用
+    zh-TW: 聊天輸入已停用
+    ja: チャット入力は無効です
+  welcome:
+    en: Welcome to Syncplay! Connect to a server to get started.
+    zh-CN: 欢迎使用 Syncplay！连接服务器开始吧。
+    zh-TW: 歡迎使用 Syncplay！連線伺服器開始吧。
+    ja: Syncplay へようこそ！サーバーに接続して始めましょう。
+  empty_all:
+    en: No messages yet. Start chatting!
+    zh-CN: 还没有消息，来说点什么吧！
+    zh-TW: 還沒有訊息，來說點什麼吧！
+    ja: まだメッセージがありません。最初のメッセージを送りましょう！
+  empty_chat:
+    en: No chat messages yet. Start chatting!
+    zh-CN: 还没有聊天消息，来说点什么吧！
+    zh-TW: 還沒有聊天訊息，來說點什麼吧！
+    ja: まだチャットメッセージがありません。
+  empty_events:
+    en: No sync events yet.
+    zh-CN: 还没有同步事件。
+    zh-TW: 還沒有同步事件。
+    ja: まだ同期イベントがありません。
+  new_messages:
+    en: New messages
+    zh-CN: 新消息
+    zh-TW: 新訊息
+    ja: 新着メッセージ
+  filter_all:
+    en: All
+    zh-CN: 全部
+    zh-TW: 全部
+    ja: すべて
+  filter_chat:
+    en: Chat
+    zh-CN: 聊天
+    zh-TW: 聊天
+    ja: チャット
+  filter_events:
+    en: Events
+    zh-CN: 事件
+    zh-TW: 事件
+    ja: イベント
+conn:
+  username_ph:
+    en: Your username
+    zh-CN: 你的用户名
+    zh-TW: 你的使用者名稱
+    ja: ユーザー名
+  password_ph:
+    en: Server password
+    zh-CN: 服务器密码
+    zh-TW: 伺服器密碼
+    ja: サーバーパスワード
+  username_required:
+    en: Username is required
+    zh-CN: 用户名不能为空
+    zh-TW: 使用者名稱不能為空
+    ja: ユーザー名は必須です
+  player_required:
+    en: Select a media player in Settings before connecting.
+    zh-CN: 请先在设置中选择媒体播放器再连接。
+    zh-TW: 請先在設定中選擇媒體播放器再連線。
+    ja: 接続する前に設定でメディアプレイヤーを選択してください。
+  address_invalid:
+    en: Address must be in host:port format
+    zh-CN: 地址必须是 host:port 格式
+    zh-TW: 地址必須是 host:port 格式
+    ja: アドレスは host:port 形式で入力してください
+  title:
+    en: Connect to a room
+    zh-CN: 加入房间
+    zh-TW: 加入房間
+    ja: ルームに接続
+  subtitle:
+    en: Join a Syncplay server to watch and chat together.
+    zh-CN: 加入 Syncplay 服务器，一起观看和聊天。
+    zh-TW: 加入 Syncplay 伺服器，一起觀看和聊天。
+    ja: Syncplay サーバーに参加して、一緒に視聴・チャットしましょう。
+  address_label:
+    en: Address (host:port)
+    zh-CN: 地址（host:port）
+    zh-TW: 地址（host:port）
+    ja: アドレス（host:port）
+  username_label:
+    en: Username *
+    zh-CN: 用户名 *
+    zh-TW: 使用者名稱 *
+    ja: ユーザー名 *
+  room_label:
+    en: Room
+    zh-CN: 房间
+    zh-TW: 房間
+    ja: ルーム
+  password_label:
+    en: Password (optional)
+    zh-CN: 密码（可选）
+    zh-TW: 密碼（可選）
+    ja: パスワード（任意）
+  player_warning:
+    en: Select a media player before connecting.
+    zh-CN: 请先选择媒体播放器再连接。
+    zh-TW: 請先選擇媒體播放器再連線。
+    ja: 接続する前にメディアプレイヤーを選択してください。
+  choose_player:
+    en: Choose Player
+    zh-CN: 选择播放器
+    zh-TW: 選擇播放器
+    ja: プレイヤーを選択
+  connecting:
+    en: Connecting…
+    zh-CN: 正在连接…
+    zh-TW: 正在連線…
+    ja: 接続中…
+playlist:
+  media_dirs_title:
+    en: Media Directories
+    zh-CN: 媒体目录
+    zh-TW: 媒體目錄
+    ja: メディアディレクトリ
+  trusted_domains_title:
+    en: Trusted Domains
+    zh-CN: 信任域名
+    zh-TW: 信任網域
+    ja: 信頼済みドメイン
+  set_dirs_first:
+    en: Set media directories in Settings before adding files
+    zh-CN: 请先在设置中配置媒体目录，再添加文件
+    zh-TW: 請先在設定中配置媒體目錄，再新增檔案
+    ja: ファイルを追加する前に設定でメディアディレクトリを指定してください
+  filter_video:
+    en: Video
+    zh-CN: 视频
+    zh-TW: 影片
+    ja: 動画
+  filter_audio:
+    en: Audio
+    zh-CN: 音频
+    zh-TW: 音訊
+    ja: 音声
+  filter_all:
+    en: All files
+    zh-CN: 所有文件
+    zh-TW: 所有檔案
+    ja: すべてのファイル
+  file_outside_dirs:
+    en: Selected file is outside the media directories
+    zh-CN: 所选文件不在媒体目录内
+    zh-TW: 所選檔案不在媒體目錄內
+    ja: 選択したファイルはメディアディレクトリ外です
+  scan_menu:
+    en: "Scan Media Directory (last: %{time})"
+    zh-CN: 扫描媒体目录（上次：%{time}）
+    zh-TW: 掃描媒體目錄（上次：%{time}）
+    ja: メディアディレクトリをスキャン（前回：%{time}）
+  title:
+    en: Playlist · %{count}
+    zh-CN: 播放列表 · %{count}
+    zh-TW: 播放清單 · %{count}
+    ja: プレイリスト · %{count}
+  add_file:
+    en: Add file
+    zh-CN: 添加文件
+    zh-TW: 新增檔案
+    ja: ファイルを追加
+  actions:
+    en: Playlist actions
+    zh-CN: 播放列表操作
+    zh-TW: 播放清單操作
+    ja: プレイリスト操作
+  menu_clear:
+    en: Clear Playlist
+    zh-CN: 清空播放列表
+    zh-TW: 清空播放清單
+    ja: プレイリストをクリア
+  unresolved_path:
+    en: Unresolved path
+    zh-CN: 路径无法解析
+    zh-TW: 路徑無法解析
+    ja: パスを解決できません
+  unavailable:
+    en: Unavailable
+    zh-CN: 不可用
+    zh-TW: 不可用
+    ja: 利用不可
+  play:
+    en: Play
+    zh-CN: 播放
+    zh-TW: 播放
+    ja: 再生
+  previous:
+    en: Previous
+    zh-CN: 上一个
+    zh-TW: 上一個
+    ja: 前へ
+  next:
+    en: Next
+    zh-CN: 下一个
+    zh-TW: 下一個
+    ja: 次へ
+  shared_on:
+    en: Shared playlists on
+    zh-CN: 共享播放列表已开启
+    zh-TW: 共享播放清單已開啟
+    ja: 共有プレイリスト オン
+  shared_off:
+    en: Shared playlists off
+    zh-CN: 共享播放列表已关闭
+    zh-TW: 共享播放清單已關閉
+    ja: 共有プレイリスト オフ
+  loop_on:
+    en: Loop playlist on
+    zh-CN: 列表循环已开启
+    zh-TW: 清單循環已開啟
+    ja: プレイリストのループ オン
+  loop_off:
+    en: Loop playlist off
+    zh-CN: 列表循环已关闭
+    zh-TW: 清單循環已關閉
+    ja: プレイリストのループ オフ
+  loop_file_on:
+    en: Loop file on
+    zh-CN: 单文件循环已开启
+    zh-TW: 單檔案循環已開啟
+    ja: ファイルのループ オン
+  loop_file_off:
+    en: Loop file off
+    zh-CN: 单文件循环已关闭
+    zh-TW: 單檔案循環已關閉
+    ja: ファイルのループ オフ
+  empty:
+    en: No items in playlist
+    zh-CN: 播放列表为空
+    zh-TW: 播放清單為空
+    ja: プレイリストに項目がありません
+  empty_hint:
+    en: Drag files here or click + to add
+    zh-CN: 拖文件到这里，或点击 + 添加
+    zh-TW: 拖檔案到這裡，或點擊 + 新增
+    ja: ここにファイルをドラッグするか、+ をクリックして追加
+  never:
+    en: Never
+    zh-CN: 从未
+    zh-TW: 從未
+    ja: なし
+  scan_timeout_invalid:
+    en: Media scan timeout must be a positive whole number
+    zh-CN: 媒体扫描超时必须是正整数
+    zh-TW: 媒體掃描逾時必須是正整數
+    ja: メディアスキャンのタイムアウトは正の整数で入力してください
+  dir_exists:
+    en: Media directory already exists
+    zh-CN: 媒体目录已存在
+    zh-TW: 媒體目錄已存在
+    ja: このメディアディレクトリは既に存在します
+  dirs_description:
+    en: Manage directories used for playlist matching.
+    zh-CN: 管理用于播放列表匹配的目录。
+    zh-TW: 管理用於播放清單匹配的目錄。
+    ja: プレイリストの照合に使うディレクトリを管理します。
+  scan_timeout:
+    en: Scan timeout
+    zh-CN: 扫描超时
+    zh-TW: 掃描逾時
+    ja: スキャンのタイムアウト
+  scan_timeout_desc:
+    en: Seconds allowed for media directory scanning.
+    zh-CN: 扫描媒体目录允许的秒数。
+    zh-TW: 掃描媒體目錄允許的秒數。
+    ja: メディアディレクトリのスキャンに許可する秒数。
+  add_directory:
+    en: Add directory
+    zh-CN: 添加目录
+    zh-TW: 新增目錄
+    ja: ディレクトリを追加
+  browse:
+    en: Browse
+    zh-CN: 浏览
+    zh-TW: 瀏覽
+    ja: 参照
+  current_dirs:
+    en: Current directories
+    zh-CN: 当前目录
+    zh-TW: 目前目錄
+    ja: 現在のディレクトリ
+  no_dirs:
+    en: No media directories added.
+    zh-CN: 尚未添加媒体目录。
+    zh-TW: 尚未新增媒體目錄。
+    ja: メディアディレクトリが追加されていません。
+  move_up:
+    en: Move up
+    zh-CN: 上移
+    zh-TW: 上移
+    ja: 上へ移動
+  move_down:
+    en: Move down
+    zh-CN: 下移
+    zh-TW: 下移
+    ja: 下へ移動
+  dirs_note:
+    en: Files are matched locally against these directories.
+    zh-CN: 文件会在本地与这些目录进行匹配。
+    zh-TW: 檔案會在本機與這些目錄進行匹配。
+    ja: ファイルはこれらのディレクトリとローカルで照合されます。
+  domain_exists:
+    en: Trusted domain already exists
+    zh-CN: 信任域名已存在
+    zh-TW: 信任網域已存在
+    ja: この信頼済みドメインは既に存在します
+  domains_description:
+    en: Control which URLs can be opened.
+    zh-CN: 控制允许打开的 URL。
+    zh-TW: 控制允許開啟的 URL。
+    ja: 開ける URL を制御します。
+  only_trusted:
+    en: Only switch to trusted domains
+    zh-CN: 只切换到信任域名
+    zh-TW: 只切換到信任網域
+    ja: 信頼済みドメインのみ切り替え
+  trusted_domains:
+    en: Trusted domains
+    zh-CN: 信任域名
+    zh-TW: 信任網域
+    ja: 信頼済みドメイン
+  no_domains:
+    en: No trusted domains added.
+    zh-CN: 尚未添加信任域名。
+    zh-TW: 尚未新增信任網域。
+    ja: 信頼済みドメインが追加されていません。
+rooms:
+  room_name_ph:
+    en: Room name
+    zh-CN: 房间名称
+    zh-TW: 房間名稱
+    ja: ルーム名
+  add_room_ph:
+    en: Add a room
+    zh-CN: 添加房间
+    zh-TW: 新增房間
+    ja: ルームを追加
+  room_exists:
+    en: Room already exists
+    zh-CN: 房间已存在
+    zh-TW: 房間已存在
+    ja: このルームは既に存在します
+  server_rooms:
+    en: Server Rooms
+    zh-CN: 服务器房间
+    zh-TW: 伺服器房間
+    ja: サーバーのルーム
+  persistent:
+    en: Persistent
+    zh-CN: 常驻
+    zh-TW: 常駐
+    ja: 常設
+  no_server_rooms:
+    en: No rooms advertised by the server.
+    zh-CN: 服务器没有公布房间。
+    zh-TW: 伺服器沒有公佈房間。
+    ja: サーバーから公開されているルームはありません。
+  current:
+    en: Current
+    zh-CN: 当前
+    zh-TW: 目前
+    ja: 現在
+  join:
+    en: Join
+    zh-CN: 加入
+    zh-TW: 加入
+    ja: 参加
+  create_managed:
+    en: Create Managed Room
+    zh-CN: 创建托管房间
+    zh-TW: 建立託管房間
+    ja: 管理ルームを作成
+  create:
+    en: Create
+    zh-CN: 创建
+    zh-TW: 建立
+    ja: 作成
+  auth_operator:
+    en: Authenticate as Room Operator
+    zh-CN: 以房间管理员身份认证
+    zh-TW: 以房間管理員身份認證
+    ja: ルームオペレーターとして認証
+  authenticate:
+    en: Authenticate
+    zh-CN: 认证
+    zh-TW: 認證
+    ja: 認証
+  saved_rooms:
+    en: Saved Rooms
+    zh-CN: 已保存的房间
+    zh-TW: 已儲存的房間
+    ja: 保存済みルーム
+  no_saved:
+    en: No rooms saved.
+    zh-CN: 没有已保存的房间。
+    zh-TW: 沒有已儲存的房間。
+    ja: 保存済みルームはありません。
+  default:
+    en: Default
+    zh-CN: 默认
+    zh-TW: 預設
+    ja: デフォルト
+  make_default:
+    en: Make default
+    zh-CN: 设为默认
+    zh-TW: 設為預設
+    ja: デフォルトに設定
+  description:
+    en: Manage room connections and defaults.
+    zh-CN: 管理房间连接与默认房间。
+    zh-TW: 管理房間連線與預設房間。
+    ja: ルーム接続とデフォルトを管理します。
+  connect_title:
+    en: Connect to Room
+    zh-CN: 连接房间
+    zh-TW: 連線房間
+    ja: ルームに接続
+users:
+  rooms_title:
+    en: Rooms
+    zh-CN: 房间
+    zh-TW: 房間
+    ja: ルーム
+  ready:
+    en: Ready
+    zh-CN: 已就绪
+    zh-TW: 已就緒
+    ja: 準備完了
+  not_ready:
+    en: Not ready
+    zh-CN: 未就绪
+    zh-TW: 未就緒
+    ja: 未準備
+  you:
+    en: you
+    zh-CN: 你
+    zh-TW: 你
+    ja: あなた
+  no_users:
+    en: No users in room
+    zh-CN: 房间内没有用户
+    zh-TW: 房間內沒有使用者
+    ja: ルームにユーザーがいません
+  title:
+    en: Users
+    zh-CN: 用户
+    zh-TW: 使用者
+    ja: ユーザー
+  room_fallback:
+    en: Room
+    zh-CN: 房间
+    zh-TW: 房間
+    ja: ルーム
+settings:
+  title:
+    en: Settings
+    zh-CN: 设置
+    zh-TW: 設定
+    ja: 設定
+  tab_player:
+    en: Player
+    zh-CN: 播放器
+    zh-TW: 播放器
+    ja: プレイヤー
+  tab_sync:
+    en: Sync
+    zh-CN: 同步
+    zh-TW: 同步
+    ja: 同期
+  tab_readiness:
+    en: Readiness
+    zh-CN: 就绪
+    zh-TW: 就緒
+    ja: 準備
+  tab_privacy:
+    en: Privacy
+    zh-CN: 隐私
+    zh-TW: 隱私
+    ja: プライバシー
+  tab_chat:
+    en: Chat
+    zh-CN: 聊天
+    zh-TW: 聊天
+    ja: チャット
+  tab_osd:
+    en: OSD
+    zh-CN: OSD
+    zh-TW: OSD
+    ja: OSD
+  tab_misc:
+    en: Misc
+    zh-CN: 杂项
+    zh-TW: 雜項
+    ja: その他
+  saving:
+    en: Saving...
+    zh-CN: 正在保存...
+    zh-TW: 正在儲存...
+    ja: 保存中...
+  saved:
+    en: Saved.
+    zh-CN: 已保存。
+    zh-TW: 已儲存。
+    ja: 保存しました。
+  save_failed:
+    en: Save failed.
+    zh-CN: 保存失败。
+    zh-TW: 儲存失敗。
+    ja: 保存に失敗しました。
+  autosave_note:
+    en: Changes are saved automatically.
+    zh-CN: 更改会自动保存。
+    zh-TW: 變更會自動儲存。
+    ja: 変更は自動的に保存されます。
+  no_players:
+    en: No players detected. Enter path manually.
+    zh-CN: 未检测到播放器，请手动输入路径。
+    zh-TW: 未偵測到播放器，請手動輸入路徑。
+    ja: プレイヤーが検出されませんでした。パスを手動で入力してください。
+  select_player:
+    en: Select a player...
+    zh-CN: 选择播放器...
+    zh-TW: 選擇播放器...
+    ja: プレイヤーを選択...
+  media_player:
+    en: Media Player
+    zh-CN: 媒体播放器
+    zh-TW: 媒體播放器
+    ja: メディアプレイヤー
+  last_checked:
+    en: Last checked %{time}
+    zh-CN: 上次检查 %{time}
+    zh-TW: 上次檢查 %{time}
+    ja: 前回の確認 %{time}
+  refreshing:
+    en: Refreshing...
+    zh-CN: 正在刷新...
+    zh-TW: 正在重新整理...
+    ja: 更新中...
+  refresh_players:
+    en: Refresh Players
+    zh-CN: 刷新播放器
+    zh-TW: 重新整理播放器
+    ja: プレイヤーを再検出
+  player_path_label:
+    en: Player Path (Manual)
+    zh-CN: 播放器路径（手动）
+    zh-TW: 播放器路徑（手動）
+    ja: プレイヤーのパス（手動）
+  player_path_desc:
+    en: Full path to media player executable
+    zh-CN: 媒体播放器可执行文件的完整路径
+    zh-TW: 媒體播放器執行檔的完整路徑
+    ja: メディアプレイヤー実行ファイルのフルパス
+  player_args_label:
+    en: Player Arguments
+    zh-CN: 播放器参数
+    zh-TW: 播放器參數
+    ja: プレイヤーの引数
+  player_args_desc:
+    en: Arguments applied when launching the player
+    zh-CN: 启动播放器时使用的参数
+    zh-TW: 啟動播放器時使用的參數
+    ja: プレイヤー起動時に適用する引数
+  seek_rewind:
+    en: Seek Threshold Rewind (seconds)
+    zh-CN: 快退阈值（秒）
+    zh-TW: 快退閾值（秒）
+    ja: 巻き戻ししきい値（秒）
+  seek_fastforward:
+    en: Seek Threshold Fastforward (seconds)
+    zh-CN: 快进阈值（秒）
+    zh-TW: 快進閾值（秒）
+    ja: 早送りしきい値（秒）
+  slowdown_threshold:
+    en: Slowdown Threshold (seconds)
+    zh-CN: 减速阈值（秒）
+    zh-TW: 減速閾值（秒）
+    ja: 減速しきい値（秒）
+  slowdown_reset:
+    en: Slowdown Reset Threshold (seconds)
+    zh-CN: 减速恢复阈值（秒）
+    zh-TW: 減速恢復閾值（秒）
+    ja: 減速解除しきい値（秒）
+  slowdown_rate:
+    en: Slowdown Rate (0-1)
+    zh-CN: 减速速率（0-1）
+    zh-TW: 減速速率（0-1）
+    ja: 減速レート（0-1）
+  slow_on_desync:
+    en: Slow down on desync
+    zh-CN: 失步时减速
+    zh-TW: 失步時減速
+    ja: ずれたら減速
+  rewind_on_desync:
+    en: Rewind on desync
+    zh-CN: 失步时快退
+    zh-TW: 失步時快退
+    ja: ずれたら巻き戻し
+  fastforward_on_desync:
+    en: Fast-forward on desync
+    zh-CN: 失步时快进
+    zh-TW: 失步時快進
+    ja: ずれたら早送り
+  dont_slow_with_me:
+    en: Do not slow down with me
+    zh-CN: 不跟随我减速
+    zh-TW: 不跟隨我減速
+    ja: 自分は減速しない
+  ready_at_start:
+    en: Ready at startup
+    zh-CN: 启动时就绪
+    zh-TW: 啟動時就緒
+    ja: 起動時に準備完了
+  pause_on_leave:
+    en: Pause when someone leaves the room
+    zh-CN: 有人离开房间时暂停
+    zh-TW: 有人離開房間時暫停
+    ja: 誰かが退出したら一時停止
+  unpause_behavior:
+    en: Unpause behavior
+    zh-CN: 恢复播放行为
+    zh-TW: 恢復播放行為
+    ja: 再生再開の動作
+  autoplay_enabled:
+    en: Enable auto-play when all ready
+    zh-CN: 全员就绪时自动播放
+    zh-TW: 全員就緒時自動播放
+    ja: 全員の準備が整ったら自動再生
+  autoplay_same_names:
+    en: Require same filenames for auto-play
+    zh-CN: 自动播放要求相同文件名
+    zh-TW: 自動播放要求相同檔名
+    ja: 自動再生には同一ファイル名を要求
+  autoplay_min_users:
+    en: Auto-play minimum users
+    zh-CN: 自动播放最少用户数
+    zh-TW: 自動播放最少使用者數
+    ja: 自動再生の最少ユーザー数
+  autoplay_min_desc:
+    en: Use -1 to disable minimum.
+    zh-CN: 用 -1 表示不限制。
+    zh-TW: 用 -1 表示不限制。
+    ja: "-1 で制限を無効にします。"
+  filename_privacy:
+    en: Filename privacy
+    zh-CN: 文件名隐私
+    zh-TW: 檔名隱私
+    ja: ファイル名のプライバシー
+  filesize_privacy:
+    en: Filesize privacy
+    zh-CN: 文件大小隐私
+    zh-TW: 檔案大小隱私
+    ja: ファイルサイズのプライバシー
+  chat_input_enabled:
+    en: Enable chat input
+    zh-CN: 启用聊天输入
+    zh-TW: 啟用聊天輸入
+    ja: チャット入力を有効化
+  chat_direct_input:
+    en: Direct input mode
+    zh-CN: 直接输入模式
+    zh-TW: 直接輸入模式
+    ja: 直接入力モード
+  chat_input_position:
+    en: Chat input position
+    zh-CN: 聊天输入位置
+    zh-TW: 聊天輸入位置
+    ja: チャット入力の位置
+  input_font_family:
+    en: Input font family
+    zh-CN: 输入字体
+    zh-TW: 輸入字體
+    ja: 入力フォント
+  input_font_size:
+    en: Input font size
+    zh-CN: 输入字号
+    zh-TW: 輸入字號
+    ja: 入力フォントサイズ
+  input_font_weight:
+    en: Input font weight
+    zh-CN: 输入字重
+    zh-TW: 輸入字重
+    ja: 入力フォントの太さ
+  input_font_color:
+    en: Input font color
+    zh-CN: 输入颜色
+    zh-TW: 輸入顏色
+    ja: 入力フォントの色
+  underline_input:
+    en: Underline chat input
+    zh-CN: 聊天输入下划线
+    zh-TW: 聊天輸入底線
+    ja: チャット入力に下線
+  chat_output_enabled:
+    en: Enable chat output
+    zh-CN: 启用聊天输出
+    zh-TW: 啟用聊天輸出
+    ja: チャット出力を有効化
+  chat_output_mode:
+    en: Chat output mode
+    zh-CN: 聊天输出模式
+    zh-TW: 聊天輸出模式
+    ja: チャット出力モード
+  output_font_family:
+    en: Output font family
+    zh-CN: 输出字体
+    zh-TW: 輸出字體
+    ja: 出力フォント
+  output_font_size:
+    en: Output font size
+    zh-CN: 输出字号
+    zh-TW: 輸出字號
+    ja: 出力フォントサイズ
+  output_font_weight:
+    en: Output font weight
+    zh-CN: 输出字重
+    zh-TW: 輸出字重
+    ja: 出力フォントの太さ
+  chat_max_lines:
+    en: Chat max lines
+    zh-CN: 聊天最大行数
+    zh-TW: 聊天最大行數
+    ja: チャットの最大行数
+  underline_output:
+    en: Underline chat output
+    zh-CN: 聊天输出下划线
+    zh-TW: 聊天輸出底線
+    ja: チャット出力に下線
+  top_margin:
+    en: Top margin
+    zh-CN: 上边距
+    zh-TW: 上邊距
+    ja: 上マージン
+  left_margin:
+    en: Left margin
+    zh-CN: 左边距
+    zh-TW: 左邊距
+    ja: 左マージン
+  bottom_margin:
+    en: Bottom margin
+    zh-CN: 下边距
+    zh-TW: 下邊距
+    ja: 下マージン
+  move_osd:
+    en: Move OSD for chat
+    zh-CN: 为聊天移动 OSD
+    zh-TW: 為聊天移動 OSD
+    ja: チャット用に OSD を移動
+  osd_margin:
+    en: OSD margin
+    zh-CN: OSD 边距
+    zh-TW: OSD 邊距
+    ja: OSD マージン
+  notification_timeout:
+    en: Notification timeout
+    zh-CN: 通知时长
+    zh-TW: 通知時長
+    ja: 通知の表示時間
+  alert_timeout:
+    en: Alert timeout
+    zh-CN: 提醒时长
+    zh-TW: 提醒時長
+    ja: 警告の表示時間
+  chat_timeout:
+    en: Chat timeout
+    zh-CN: 聊天时长
+    zh-TW: 聊天時長
+    ja: チャットの表示時間
+  osd_duration:
+    en: OSD Duration (ms)
+    zh-CN: OSD 时长（毫秒）
+    zh-TW: OSD 時長（毫秒）
+    ja: OSD の表示時間（ミリ秒）
+  show_osd:
+    en: Show OSD
+    zh-CN: 显示 OSD
+    zh-TW: 顯示 OSD
+    ja: OSD を表示
+  show_osd_warnings:
+    en: Show OSD warnings
+    zh-CN: 显示 OSD 警告
+    zh-TW: 顯示 OSD 警告
+    ja: OSD 警告を表示
+  show_slowdown_osd:
+    en: Show slowdown OSD
+    zh-CN: 显示减速 OSD
+    zh-TW: 顯示減速 OSD
+    ja: 減速 OSD を表示
+  show_same_room_osd:
+    en: Show same room OSD
+    zh-CN: 显示同房间 OSD
+    zh-TW: 顯示同房間 OSD
+    ja: 同じルームの OSD を表示
+  show_different_room_osd:
+    en: Show different room OSD
+    zh-CN: 显示不同房间 OSD
+    zh-TW: 顯示不同房間 OSD
+    ja: 別ルームの OSD を表示
+  show_non_controller_osd:
+    en: Show non-controller OSD
+    zh-CN: 显示非控制者 OSD
+    zh-TW: 顯示非控制者 OSD
+    ja: 非コントローラーの OSD を表示
+  show_duration_notification:
+    en: Show duration notification
+    zh-CN: 显示时长通知
+    zh-TW: 顯示時長通知
+    ja: 再生時間の通知を表示
+  auto_connect:
+    en: Auto-connect on startup
+    zh-CN: 启动时自动连接
+    zh-TW: 啟動時自動連線
+    ja: 起動時に自動接続
+  autosave_rooms:
+    en: Auto-save joined rooms
+    zh-CN: 自动保存加入的房间
+    zh-TW: 自動儲存加入的房間
+    ja: 参加したルームを自動保存
+  check_updates:
+    en: Check for updates automatically
+    zh-CN: 自动检查更新
+    zh-TW: 自動檢查更新
+    ja: 更新を自動で確認
+  debug:
+    en: Enable debug logging
+    zh-CN: 启用调试日志
+    zh-TW: 啟用除錯日誌
+    ja: デバッグログを有効化
+  custom_path:
+    en: Custom path...
+    zh-CN: 自定义路径...
+    zh-TW: 自訂路徑...
+    ja: カスタムパス...
+  language:
+    en: Language
+    zh-CN: 语言
+    zh-TW: 語言
+    ja: 言語
+  unpause_if_already_ready:
+    en: If already ready
+    zh-CN: 若已就绪
+    zh-TW: 若已就緒
+    ja: 自分が準備済みなら
+  unpause_if_others_ready:
+    en: If others ready
+    zh-CN: 若其他人就绪
+    zh-TW: 若其他人就緒
+    ja: 他の人が準備済みなら
+  unpause_if_min_users_ready:
+    en: If min users ready
+    zh-CN: 若达到最少就绪人数
+    zh-TW: 若達到最少就緒人數
+    ja: 最少人数が準備済みなら
+  unpause_always:
+    en: Always
+    zh-CN: 总是
+    zh-TW: 總是
+    ja: 常に
+  privacy_send_raw:
+    en: Send raw
+    zh-CN: 原文发送
+    zh-TW: 原文傳送
+    ja: そのまま送信
+  privacy_send_hashed:
+    en: Send hashed
+    zh-CN: 发送哈希
+    zh-TW: 傳送雜湊
+    ja: ハッシュで送信
+  privacy_do_not_send:
+    en: Do not send
+    zh-CN: 不发送
+    zh-TW: 不傳送
+    ja: 送信しない
+  position_top:
+    en: Top
+    zh-CN: 顶部
+    zh-TW: 頂部
+    ja: 上
+  position_middle:
+    en: Middle
+    zh-CN: 中部
+    zh-TW: 中部
+    ja: 中央
+  position_bottom:
+    en: Bottom
+    zh-CN: 底部
+    zh-TW: 底部
+    ja: 下
+  chat_mode_chatroom:
+    en: Chatroom
+    zh-CN: 聊天室
+    zh-TW: 聊天室
+    ja: チャットルーム
+  chat_mode_scrolling:
+    en: Scrolling
+    zh-CN: 滚动
+    zh-TW: 捲動
+    ja: スクロール
+  update_use_default:
+    en: Use default
+    zh-CN: 使用默认
+    zh-TW: 使用預設
+    ja: デフォルトを使用
+  update_enabled:
+    en: Enabled
+    zh-CN: 启用
+    zh-TW: 啟用
+    ja: 有効
+  update_disabled:
+    en: Disabled
+    zh-CN: 禁用
+    zh-TW: 停用
+    ja: 無効
+notify:
+  connection_failed:
+    en: "Connection failed: %{error}"
+    zh-CN: 连接失败：%{error}
+    zh-TW: 連線失敗：%{error}
+    ja: 接続に失敗しました：%{error}
+  update_available:
+    en: "Update available: v%{version}"
+    zh-CN: 发现新版本：v%{version}
+    zh-TW: 發現新版本：v%{version}
+    ja: 新しいバージョンがあります：v%{version}
+  up_to_date:
+    en: Already up to date
+    zh-CN: 已是最新版本
+    zh-TW: 已是最新版本
+    ja: 最新です
+  update_check_failed:
+    en: "Update check failed: %{error}"
+    zh-CN: 检查更新失败：%{error}
+    zh-TW: 檢查更新失敗：%{error}
+    ja: 更新の確認に失敗しました：%{error}
+  update_installed:
+    en: v%{version} installed — restart to finish
+    zh-CN: v%{version} 已安装——重启后生效
+    zh-TW: v%{version} 已安裝——重新啟動後生效
+    ja: v%{version} をインストールしました——再起動して完了
+  update_failed:
+    en: "Update failed: %{error}"
+    zh-CN: 更新失败：%{error}
+    zh-TW: 更新失敗：%{error}
+    ja: 更新に失敗しました：%{error}
+updater:
+  already_current:
+    en: already up to date (%{version})
+    zh-CN: 已是最新（%{version}）
+    zh-TW: 已是最新（%{version}）
+    ja: 最新です（%{version}）
+  unexpected_status:
+    en: unexpected update status
+    zh-CN: 意外的更新状态
+    zh-TW: 意外的更新狀態
+    ja: 予期しない更新状態です
