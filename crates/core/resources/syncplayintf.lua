@@ -50,6 +50,14 @@ local FONT_SIZE_MULTIPLIER = 2
 
 local chat_log = {}
 
+-- System IME input via input-ime requires mpv 0.40+.
+-- any_unicode is available in mpv 0.39+. Probe input-ime separately because
+-- the property is absent in 0.39 and may be missing in other player builds.
+local TEXT_INPUT_SUPPORTED_VERSION = 39
+local text_input_supported = false
+local has_text_input_binding = false
+local ime_enabled_before_repl = nil
+
 local assdraw = require "mp.assdraw"
 
 local opt = require 'mp.options'
@@ -745,9 +753,13 @@ function set_active(active)
         repl_active = true
         insert_mode = false
         mp.enable_key_bindings('repl-input', 'allow-hide-cursor+allow-vo-dragging')
+        define_text_input_binding()
+        enable_ime_for_input()
     else
         repl_active = false
         mp.disable_key_bindings('repl-input')
+        remove_text_input_binding()
+        restore_ime_after_input()
     end
     if default_oscvisibility_state ~= "never" and opts['OscVisibilityChangeCompatible'] == true then
         if active then
@@ -872,14 +884,30 @@ function trim_input()
     return
 end
 
--- Insert a character at the current cursor position (' '-'~', Shift+Enter)
+-- Legacy per-key input can also open chat (chatDirectInput).
 function handle_char_input(c)
-    if c == nil then return end
+    if c == nil or c == "" then return end
+    set_active(true)
+    insert_text_at_cursor(c)
+end
+
+-- Insert committed text one UTF-8 character at a time so overwrite mode and
+-- the existing character limit behave the same for keys and IME phrases.
+function insert_text_at_cursor(text)
+    local pos = 1
+    while pos <= #text do
+        local following = next_utf8(text, pos)
+        insert_char_at_cursor(text:sub(pos, following - 1))
+        pos = following
+    end
+    update()
+end
+
+function insert_char_at_cursor(c)
     if c == "\\" then c = opts['backslashSubstituteCharacter'] end
     if key_hints_enabled and (string.len(line) > 0 or opts['chatDirectInput'] == false) then
         key_hints_enabled = false
     end
-    set_active(true)
     if insert_mode then
         line = line:sub(1, cursor - 1) .. c .. line:sub(next_utf8(line, cursor))
     else
@@ -887,8 +915,59 @@ function handle_char_input(c)
     end
     cursor = cursor + c:len()
     trim_input()
-    update()
 end
+
+-- Only accept committed text while chat is open. A delayed text event after
+-- Escape/Enter must not reopen chat or consume normal player shortcuts.
+function handle_text_input(info)
+    if not repl_active or info == nil or info.canceled then return end
+    if info.event ~= "press" and info.event ~= "down" and info.event ~= "repeat" then return end
+    if info.key_text == nil or info.key_text == "" then return end
+    insert_text_at_cursor(info.key_text)
+end
+
+function detect_text_input_support()
+    local version = tostring(mp.get_property_native("mpv-version", "") or "")
+    local major, minor = version:match("v?(%d+)%.(%d+)")
+    major, minor = tonumber(major), tonumber(minor)
+    return major ~= nil and minor ~= nil
+        and (major > 0 or minor >= TEXT_INPUT_SUPPORTED_VERSION)
+end
+text_input_supported = detect_text_input_support()
+
+function define_text_input_binding()
+    if has_text_input_binding or not text_input_supported then return end
+    mp.add_forced_key_binding("any_unicode", "__syncplayintf_text", handle_text_input,
+        { repeatable = true, complex = true })
+    has_text_input_binding = true
+end
+
+function remove_text_input_binding()
+    if not has_text_input_binding then return end
+    mp.remove_key_binding("__syncplayintf_text")
+    has_text_input_binding = false
+end
+
+function enable_ime_for_input()
+    if not text_input_supported then return end
+    local ok, previous = pcall(mp.get_property_bool, "input-ime")
+    if not ok or type(previous) ~= "boolean" then return end
+    local success, result = pcall(mp.set_property_bool, "input-ime", true)
+    if success and result then
+        ime_enabled_before_repl = previous
+    end
+end
+
+function restore_ime_after_input()
+    if ime_enabled_before_repl == nil then return end
+    pcall(mp.set_property_bool, "input-ime", ime_enabled_before_repl)
+    ime_enabled_before_repl = nil
+end
+
+mp.register_event("shutdown", function()
+    remove_text_input_binding()
+    restore_ime_after_input()
+end)
 
 -- Remove the character behind the cursor (Backspace)
 function handle_backspace()
