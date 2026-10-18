@@ -50,8 +50,9 @@ local FONT_SIZE_MULTIPLIER = 2
 
 local chat_log = {}
 
--- any_unicode is available in mpv 0.39+. Probe input-ime separately: that
--- property is absent in 0.39 and may be missing in other player builds.
+-- System IME input via input-ime requires mpv 0.40+.
+-- any_unicode is available in mpv 0.39+. Probe input-ime separately because
+-- the property is absent in 0.39 and may be missing in other player builds.
 local TEXT_INPUT_SUPPORTED_VERSION = 39
 local text_input_supported = false
 local has_text_input_binding = false
