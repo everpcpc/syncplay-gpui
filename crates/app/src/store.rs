@@ -9,8 +9,9 @@ use rust_i18n::t;
 use syncplay_core::app_state::AppState;
 use syncplay_core::commands;
 use syncplay_core::commands::playlist::PlaylistItemInfo;
+use syncplay_core::config::settings::PlayerConfig;
 use syncplay_core::config::SyncplayConfig;
-use syncplay_core::player::detection::DetectedPlayer;
+use syncplay_core::player::detection::{player_path_resolves, DetectedPlayer};
 
 use crate::events::{
     ChatMessageEvent, ConnectionStatusEvent, MediaIndexRefreshingEvent, MediaIndexUpdatedEvent,
@@ -99,6 +100,9 @@ pub struct AppStore {
     pub detected_players: Vec<DetectedPlayer>,
     pub detected_players_at: Option<i64>,
     pub players_refreshing: bool,
+    /// Set once the configured player path has been adopted from detection or
+    /// confirmed usable, so later scans never override a deliberate setting.
+    pub(crate) player_detection_settled: bool,
     pub connect_pending: bool,
     pub connect_result: Option<Result<String, String>>,
     pub update_state: UpdateState,
@@ -156,6 +160,7 @@ impl AppStore {
             detected_players: Vec::new(),
             detected_players_at: None,
             players_refreshing: false,
+            player_detection_settled: false,
             connect_pending: false,
             connect_result: None,
             update_state: UpdateState::Idle,
@@ -186,6 +191,10 @@ impl AppStore {
             }
             UiEvent::CommandFailed(action, error) => {
                 tracing::error!(action, error, "command failed");
+                if action == "update_config" {
+                    // A failed adoption save must be retried by the next scan.
+                    self.player_detection_settled = false;
+                }
                 window.push_notification((NotificationType::Error, error), cx);
             }
             UiEvent::PlayersDetected {
@@ -195,6 +204,7 @@ impl AppStore {
                 self.detected_players = players;
                 self.detected_players_at = updated_at;
                 self.players_refreshing = false;
+                self.adopt_detected_player_if_needed();
                 cx.emit(StoreEvent::PlayersDetected);
             }
             UiEvent::PlaylistItemsChecked {
@@ -608,6 +618,37 @@ impl AppStore {
                     .await;
             }
         });
+    }
+
+    /// Adopt the first detected player when the configured path cannot
+    /// launch, so a fresh install works without a trip to settings.
+    /// Adopt the first detected player when no player was ever configured,
+    /// so a fresh install works without a trip to settings.
+    fn adopt_detected_player_if_needed(&mut self) {
+        if self.player_detection_settled {
+            return;
+        }
+        let configured = self.config.player.player_path.trim();
+        // An explicit path is the user's choice: never rewrite it, even when
+        // it cannot launch right now (unmounted volume, moved binary).
+        let untouched = configured.is_empty()
+            || configured == "custom"
+            || configured == PlayerConfig::default().player_path;
+        if !untouched || player_path_resolves(configured) {
+            self.player_detection_settled = true;
+            return;
+        }
+        let Some(player) = self.detected_players.first() else {
+            return;
+        };
+        tracing::info!(
+            "No usable player configured; adopting detected player {}",
+            player.path
+        );
+        self.player_detection_settled = true;
+        let mut config = self.config.clone();
+        config.player.player_path = player.path.clone();
+        self.update_config(config);
     }
 
     /// Read the cached player list from core (cheap mutex read).
