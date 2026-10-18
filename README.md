@@ -81,6 +81,10 @@ Cargo workspace with two crates:
 
 This client is compatible with Syncplay protocol version 1.7.x and can connect to official Syncplay servers.
 
+## Known Limitations
+
+- **CJK input in mpv's chat line (macOS)**: mpv implements IME text input (`input-ime`) only on Windows and Wayland, so the chat line opened with Enter inside mpv cannot use system input methods on macOS. Use the app's built-in chat box instead.
+
 ## License
 
 Apache-2.0
