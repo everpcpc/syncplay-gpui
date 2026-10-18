@@ -1,9 +1,15 @@
 name: Release
 
+# Publishes a GitHub release when the app version in crates/app/Cargo.toml
+# changes on main: the matrix builds first and the release is created only
+# after every platform succeeded, so a published release never ships with
+# missing assets (the in-app updater polls releases and would hit 404s).
+# `gh release create` creates the tag itself, pointing at the triggering commit.
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+    paths: [crates/app/Cargo.toml, .github/workflows/release.yml]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,53 +17,48 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  check-version:
-    name: Check Version Change
+  version:
+    name: Check Version
     runs-on: ubuntu-latest
     outputs:
-      version_changed: ${{ steps.check.outputs.changed }}
-      new_version: ${{ steps.check.outputs.version }}
+      skip: ${{ steps.check.outputs.skip }}
+      version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 2
 
-      - name: Check if version changed
+      - name: Check version change
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           CURRENT_VERSION=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
           PREVIOUS_VERSION=$(git show HEAD^1:crates/app/Cargo.toml 2>/dev/null | grep -m1 '^version' | cut -d'"' -f2 || true)
 
           echo "Previous version: ${PREVIOUS_VERSION:-<none>}"
           echo "Current version: $CURRENT_VERSION"
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
-          if [ -n "$CURRENT_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-            echo "Version changed from ${PREVIOUS_VERSION:-<none>} to $CURRENT_VERSION"
+          if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
+            echo "::notice::no version change, skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          elif gh release view "v$CURRENT_VERSION" > /dev/null 2>&1; then
+            echo "::notice::release v$CURRENT_VERSION already exists, skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No version change detected"
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-  create-release:
-    name: Create Release
-    needs: check-version
-    if: needs.check-version.outputs.version_changed == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: v${{ needs.check-version.outputs.new_version }}
-          name: Release v${{ needs.check-version.outputs.new_version }}
-          draft: false
-          prerelease: false
-
-  build-release:
-    name: Build Release
-    needs: [check-version, create-release]
+  build:
+    name: Build (${{ matrix.target }})
+    needs: version
+    if: needs.version.outputs.skip != 'true'
     runs-on: ${{ matrix.os }}
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -116,7 +117,7 @@ jobs:
         run: |
           bash packaging/macos/package.sh \
             target/${{ matrix.target }}/release/syncplay \
-            ${{ needs.check-version.outputs.new_version }} \
+            ${{ needs.version.outputs.version }} \
             dist \
             ${{ matrix.dmg_arch }}
 
@@ -125,40 +126,60 @@ jobs:
         run: |
           mkdir -p dist/syncplay
           cp target/${{ matrix.target }}/release/syncplay dist/syncplay/
-          tar -czf syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.tar.gz -C dist syncplay
+          tar -czf syncplay_${{ needs.version.outputs.version }}_${{ matrix.target }}.tar.gz -C dist syncplay
 
       - name: Package updater archive + installer (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           mkdir -p dist/syncplay
           cp target/${{ matrix.target }}/release/syncplay.exe dist/syncplay/
-          Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.zip
+          Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ needs.version.outputs.version }}_${{ matrix.target }}.zip
           cp target/${{ matrix.target }}/release/syncplay.exe packaging/windows/syncplay.exe
           # NSIS is not in the runner image anymore; chocolatey provides it.
           choco install nsis --no-progress -y
           $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $makensis)) { throw "makensis not found at $makensis" }
-          $outfile = "${{ github.workspace }}\syncplay_${{ needs.check-version.outputs.new_version }}_x64-setup.exe"
-          & $makensis /DVERSION=${{ needs.check-version.outputs.new_version }} /DOUTFILE="$outfile" packaging\windows\installer.nsi
+          $outfile = "${{ github.workspace }}\syncplay_${{ needs.version.outputs.version }}_x64-setup.exe"
+          & $makensis /DVERSION=${{ needs.version.outputs.version }} /DOUTFILE="$outfile" packaging\windows\installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: pwsh
 
-      - name: Upload release asset (updater archive)
-        uses: softprops/action-gh-release@v3
+      - name: Upload artifact (updater archive)
+        uses: actions/upload-artifact@v7
         with:
-          tag_name: v${{ needs.check-version.outputs.new_version }}
-          files: syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.target }}.${{ matrix.archive }}
+          name: syncplay-${{ matrix.target }}
+          path: syncplay_${{ needs.version.outputs.version }}_${{ matrix.target }}.${{ matrix.archive }}
 
-      - name: Upload release asset (DMG)
+      - name: Upload artifact (DMG)
         if: matrix.os == 'macos-latest'
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v7
         with:
-          tag_name: v${{ needs.check-version.outputs.new_version }}
-          files: dist/syncplay_${{ needs.check-version.outputs.new_version }}_${{ matrix.dmg_arch }}.dmg
+          name: syncplay-dmg-${{ matrix.dmg_arch }}
+          path: dist/syncplay_${{ needs.version.outputs.version }}_${{ matrix.dmg_arch }}.dmg
 
-      - name: Upload release asset (Windows installer)
+      - name: Upload artifact (Windows installer)
         if: matrix.os == 'windows-latest'
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v7
         with:
-          tag_name: v${{ needs.check-version.outputs.new_version }}
-          files: syncplay_${{ needs.check-version.outputs.new_version }}_x64-setup.exe
+          name: syncplay-windows-installer
+          path: syncplay_${{ needs.version.outputs.version }}_x64-setup.exe
+
+  release:
+    name: Create Release
+    # runs only when every platform build succeeded; a failed build leaves no
+    # release and no tag, so a fixed re-run is not blocked by a partial release
+    needs: [version, build]
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: syncplay-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Create Release
+        run: gh release create "$TAG" --title "Release $TAG" --generate-notes --target "$GITHUB_SHA" artifacts/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.version.outputs.version }}
