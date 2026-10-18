@@ -1574,6 +1574,10 @@ impl Render for SettingsDialog {
             .child(
                 v_flex()
                     .pt_2()
+                    // Room for the 3px focus ring painted outside input borders,
+                    // otherwise the scroll clip cuts it off.
+                    .px_1()
+                    .pb_1()
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scrollbar()
