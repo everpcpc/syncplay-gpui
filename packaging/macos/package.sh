@@ -75,7 +75,9 @@ if [ "$IDENTITY" != "-" ] && [ -n "${APPLE_API_KEY:-}" ]; then
 fi
 
 ARCH="${4:-$(uname -m)}"
-DMG="$OUTDIR/syncplay_${VERSION}_${ARCH}.dmg"
+# The DMG name stays version-less on purpose: the updater matches assets by
+# target substring, and stable names make /releases/latest/download/ links work.
+DMG="$OUTDIR/syncplay_${ARCH}.dmg"
 rm -f "$DMG"
 hdiutil create -volname Syncplay -srcfolder "$APP" -ov -format UDZO "$DMG"
 if [ "$IDENTITY" != "-" ]; then

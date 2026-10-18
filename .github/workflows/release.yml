@@ -126,20 +126,20 @@ jobs:
         run: |
           mkdir -p dist/syncplay
           cp target/${{ matrix.target }}/release/syncplay dist/syncplay/
-          tar -czf syncplay_${{ needs.version.outputs.version }}_${{ matrix.target }}.tar.gz -C dist syncplay
+          tar -czf syncplay_${{ matrix.target }}.tar.gz -C dist syncplay
 
       - name: Package updater archive + installer (Windows)
         if: matrix.os == 'windows-latest'
         run: |
           mkdir -p dist/syncplay
           cp target/${{ matrix.target }}/release/syncplay.exe dist/syncplay/
-          Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ needs.version.outputs.version }}_${{ matrix.target }}.zip
+          Compress-Archive -Path dist/syncplay -DestinationPath syncplay_${{ matrix.target }}.zip
           cp target/${{ matrix.target }}/release/syncplay.exe packaging/windows/syncplay.exe
           # NSIS is not in the runner image anymore; chocolatey provides it.
           choco install nsis --no-progress -y
           $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
           if (-not (Test-Path $makensis)) { throw "makensis not found at $makensis" }
-          $outfile = "${{ github.workspace }}\syncplay_${{ needs.version.outputs.version }}_x64-setup.exe"
+          $outfile = "${{ github.workspace }}\syncplay_x64-setup.exe"
           & $makensis /DVERSION=${{ needs.version.outputs.version }} /DOUTFILE="$outfile" packaging\windows\installer.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         shell: pwsh
@@ -148,21 +148,21 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: syncplay-${{ matrix.target }}
-          path: syncplay_${{ needs.version.outputs.version }}_${{ matrix.target }}.${{ matrix.archive }}
+          path: syncplay_${{ matrix.target }}.${{ matrix.archive }}
 
       - name: Upload artifact (DMG)
         if: matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v7
         with:
           name: syncplay-dmg-${{ matrix.dmg_arch }}
-          path: dist/syncplay_${{ needs.version.outputs.version }}_${{ matrix.dmg_arch }}.dmg
+          path: dist/syncplay_${{ matrix.dmg_arch }}.dmg
 
       - name: Upload artifact (Windows installer)
         if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v7
         with:
           name: syncplay-windows-installer
-          path: syncplay_${{ needs.version.outputs.version }}_x64-setup.exe
+          path: syncplay_x64-setup.exe
 
   release:
     name: Create Release
