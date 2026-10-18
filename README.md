@@ -22,6 +22,7 @@ Download the latest release for your platform — these links always point at th
 | macOS (Apple silicon) | [syncplay_aarch64.dmg](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_aarch64.dmg) |
 | macOS (Intel) | [syncplay_x64.dmg](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x64.dmg) |
 | Windows | [syncplay_x64-setup.exe](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x64-setup.exe) |
+| Windows (portable) | [syncplay_x86_64-pc-windows-msvc.zip](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x86_64-pc-windows-msvc.zip) |
 | Linux | [syncplay_x86_64-unknown-linux-gnu.tar.gz](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x86_64-unknown-linux-gnu.tar.gz) |
 
 macOS builds are Developer ID signed and notarized. Windows binaries are unsigned, so SmartScreen may warn on first run; the installer is per-user and needs no admin rights.
