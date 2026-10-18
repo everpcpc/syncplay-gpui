@@ -1,10 +1,11 @@
 name: Release
 
-# Publishes a GitHub release when the app version in crates/app/Cargo.toml
-# changes on main: the matrix builds first and the release is created only
-# after every platform succeeded, so a published release never ships with
-# missing assets (the in-app updater polls releases and would hit 404s).
-# `gh release create` creates the tag itself, pointing at the triggering commit.
+# Publishes a GitHub release for the app version in crates/app/Cargo.toml,
+# skipping when that release already exists: the matrix builds first and the
+# release is created only after every platform succeeded, so a published
+# release never ships with missing assets (the in-app updater polls releases
+# and would hit 404s). `gh release create` creates the tag itself, pointing
+# at the triggering commit.
 on:
   push:
     branches: [main]
@@ -30,26 +31,19 @@ jobs:
       version: ${{ steps.check.outputs.version }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 2
 
-      - name: Check version change
+      # The only guard is release-exists (not "version changed"): a failed run
+      # leaves no release, and this check must not block the fixed re-run then.
+      - name: Check version
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CURRENT_VERSION=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
-          PREVIOUS_VERSION=$(git show HEAD^1:crates/app/Cargo.toml 2>/dev/null | grep -m1 '^version' | cut -d'"' -f2 || true)
+          VERSION=$(grep -m1 '^version' crates/app/Cargo.toml | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-          echo "Previous version: ${PREVIOUS_VERSION:-<none>}"
-          echo "Current version: $CURRENT_VERSION"
-          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-
-          if [ -z "$CURRENT_VERSION" ] || [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
-            echo "::notice::no version change, skipping"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          elif gh release view "v$CURRENT_VERSION" > /dev/null 2>&1; then
-            echo "::notice::release v$CURRENT_VERSION already exists, skipping"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "::notice::release v$VERSION already exists, skipping"
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -172,6 +166,8 @@ jobs:
     if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+
       - uses: actions/download-artifact@v8
         with:
           pattern: syncplay-*
