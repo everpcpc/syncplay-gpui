@@ -75,7 +75,7 @@ pub struct UserPreferences {
     pub theme: String,
     #[serde(default)]
     pub transparency_mode: TransparencyMode,
-    // UI locale code ("en", "zh-CN", "zh-TW", "ja"); unknown codes fall back to en at lookup time
+    // UI locale code ("en", "zh-CN", "zh-TW", "ja", "fr"); unknown codes fall back to en at lookup time
     #[serde(default = "default_language")]
     pub language: String,
 
@@ -212,6 +212,8 @@ fn map_system_language(locale: &str) -> &'static str {
         }
     } else if normalized.starts_with("ja") {
         "ja"
+    } else if normalized.starts_with("fr") {
+        "fr"
     } else {
         "en"
     }
@@ -489,8 +491,9 @@ mod tests {
         assert_eq!(map_system_language("zh-MO"), "zh-TW");
         assert_eq!(map_system_language("zh_Hant_TW"), "zh-TW");
         assert_eq!(map_system_language("ja-JP"), "ja");
+        assert_eq!(map_system_language("fr-FR"), "fr");
+        assert_eq!(map_system_language("fr-CA"), "fr");
         assert_eq!(map_system_language("en-US"), "en");
-        assert_eq!(map_system_language("fr-FR"), "en");
         assert_eq!(map_system_language(""), "en");
     }
 

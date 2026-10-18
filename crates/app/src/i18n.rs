@@ -1,11 +1,12 @@
 use gpui_kit::SharedString;
 
 /// (locale code, native name) pairs shown in the settings language picker.
-pub const LANGUAGES: [(&str, &str); 4] = [
+pub const LANGUAGES: [(&str, &str); 5] = [
     ("en", "English"),
     ("zh-CN", "简体中文"),
     ("zh-TW", "繁體中文"),
     ("ja", "日本語"),
+    ("fr", "Français"),
 ];
 
 pub fn apply_language(language: &str) {
