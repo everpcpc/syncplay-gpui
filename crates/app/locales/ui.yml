@@ -599,6 +599,12 @@ rooms:
     zh-TW: 建立託管房間
     ja: 管理ルームを作成
     fr: "Créer un salon géré"
+  create_managed_desc:
+    en: Just pick a room name — the operator password is generated for you and shown after creation.
+    zh-CN: 只需填房间名——管理员密码会自动生成，创建后显示给你保存。
+    zh-TW: 只需填房間名——管理員密碼會自動產生，建立後顯示給你保存。
+    ja: ルーム名を入力するだけです。オペレーターパスワードは自動生成され、作成後に表示されます。
+    fr: "Choisissez simplement un nom de salon — le mot de passe d’opérateur est généré pour vous et affiché après la création."
   create:
     en: Create
     zh-CN: 创建
@@ -611,6 +617,12 @@ rooms:
     zh-TW: 以房間管理員身份認證
     ja: ルームオペレーターとして認証
     fr: "S’authentifier comme opérateur du salon"
+  auth_operator_desc:
+    en: Only needed when taking over someone else's managed room with its operator password.
+    zh-CN: 只有在要用管理员密码接管别人创建的托管房间时才需要。
+    zh-TW: 只有在要用管理員密碼接管別人建立的託管房間時才需要。
+    ja: 他の人が作成した管理ルームをオペレーターパスワードで引き継ぐ場合のみ必要です。
+    fr: "Nécessaire uniquement pour reprendre le salon géré de quelqu’un d’autre avec son mot de passe d’opérateur."
   authenticate:
     en: Authenticate
     zh-CN: 认证
