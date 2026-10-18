@@ -267,18 +267,30 @@ conn:
     zh-TW: 密碼（可選）
     ja: パスワード（任意）
     fr: "Mot de passe (facultatif)"
+  player_using:
+    en: "Using player: %{player}"
+    zh-CN: 当前播放器：%{player}
+    zh-TW: 目前播放器：%{player}
+    ja: "使用プレイヤー: %{player}"
+    fr: "Lecteur utilisé : %{player}"
   player_warning:
-    en: Select a media player before connecting.
-    zh-CN: 请先选择媒体播放器再连接。
-    zh-TW: 請先選擇媒體播放器再連線。
-    ja: 接続する前にメディアプレイヤーを選択してください。
-    fr: "Sélectionnez un lecteur multimédia avant de vous connecter."
+    en: No usable media player was found. Choose one before connecting.
+    zh-CN: 未找到可用的媒体播放器，请先选择再连接。
+    zh-TW: 找不到可用的媒體播放器，請先選擇再連線。
+    ja: 利用可能なメディアプレイヤーが見つかりません。接続前に選択してください。
+    fr: "Aucun lecteur multimédia utilisable n’a été trouvé. Choisissez-en un avant de vous connecter."
   choose_player:
     en: Choose Player
     zh-CN: 选择播放器
     zh-TW: 選擇播放器
     ja: プレイヤーを選択
     fr: "Choisir un lecteur"
+  change_player:
+    en: Change
+    zh-CN: 更改
+    zh-TW: 更改
+    ja: 変更
+    fr: "Modifier"
   connecting:
     en: Connecting…
     zh-CN: 正在连接…
