@@ -10,6 +10,7 @@ use gpui_kit::{
     Render, SharedString, Styled as _, Subscription, Window,
 };
 use gpui_kit::{prelude::FluentBuilder as _, FontWeight, StyleRefinement};
+use rust_i18n::t;
 
 use crate::events::ChatMessageEvent;
 use crate::store::AppStore;
@@ -61,9 +62,7 @@ pub struct ChatPanel {
 impl ChatPanel {
     pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
-        let input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Type a message... (or /help for commands)")
-        });
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("chat.placeholder")));
 
         let mut subscriptions = Vec::new();
         subscriptions.push(cx.subscribe_in(
@@ -122,11 +121,11 @@ impl ChatPanel {
             (store.is_connected(), store.config.user.chat_input_enabled)
         };
         let placeholder: SharedString = if !connected {
-            "Not connected".into()
+            t!("common.not_connected").into()
         } else if chat_input_enabled {
-            "Type a message... (or /help for commands)".into()
+            t!("chat.placeholder").into()
         } else {
-            "Chat input disabled".into()
+            t!("chat.input_disabled").into()
         };
         self.input.update(cx, |input, cx| {
             input.set_placeholder(placeholder, window, cx);
@@ -166,12 +165,12 @@ impl ChatPanel {
     fn empty_hint(&self, cx: &App) -> SharedString {
         let connected = self.store.read(cx).is_connected();
         if !connected {
-            return "Welcome to Syncplay! Connect to a server to get started.".into();
+            return t!("chat.welcome").into();
         }
         match self.filter {
-            ChatFilter::All => "No messages yet. Start chatting!".into(),
-            ChatFilter::Chat => "No chat messages yet. Start chatting!".into(),
-            ChatFilter::Events => "No sync events yet.".into(),
+            ChatFilter::All => t!("chat.empty_all").into(),
+            ChatFilter::Chat => t!("chat.empty_chat").into(),
+            ChatFilter::Events => t!("chat.empty_events").into(),
         }
     }
 }
@@ -213,8 +212,8 @@ impl Render for ChatPanel {
             MessageScroller::new("chat-messages", self.scroller.clone(), move |ix, _, cx| {
                 render_message_row(&displayed[ix], dark, cx)
             })
-            .with_jump_button_label("New messages")
-            .with_jump_button_renderer(|button| button.label("New messages"))
+            .with_jump_button_label(t!("chat.new_messages"))
+            .with_jump_button_renderer(|button| button.label(t!("chat.new_messages")))
             .with_row_style(row_style)
             .into_any_element()
         };
@@ -235,9 +234,9 @@ impl Render for ChatPanel {
                             .small()
                             .selected_index(self.filter.index())
                             .children([
-                                Tab::new().label("All"),
-                                Tab::new().label("Chat"),
-                                Tab::new().label("Events"),
+                                Tab::new().label(t!("chat.filter_all")),
+                                Tab::new().label(t!("chat.filter_chat")),
+                                Tab::new().label(t!("chat.filter_events")),
                             ])
                             .on_click(cx.listener(|this, ix, _, cx| this.set_filter(*ix, cx))),
                     ),

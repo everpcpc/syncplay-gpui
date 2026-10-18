@@ -15,6 +15,7 @@ use gpui_kit::{
     FontWeight, Hsla, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
     Subscription, Window,
 };
+use rust_i18n::t;
 use syncplay_core::config::settings::PlayerConfig;
 use syncplay_core::config::settings::{
     ChatInputPosition, ChatOutputMode, PrivacyMode, UnpauseAction,
@@ -22,38 +23,50 @@ use syncplay_core::config::settings::{
 use syncplay_core::config::UserPreferences;
 use syncplay_core::player::detection::DetectedPlayer;
 
+use crate::i18n;
 use crate::store::{AppStore, StoreEvent};
 
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
 
+// Option tables pair a translation key with its config value; labels resolve
+// through i18n::tr at render time so they follow the active locale.
 const UNPAUSE_OPTIONS: [(&str, UnpauseAction); 4] = [
-    ("If already ready", UnpauseAction::IfAlreadyReady),
-    ("If others ready", UnpauseAction::IfOthersReady),
-    ("If min users ready", UnpauseAction::IfMinUsersReady),
-    ("Always", UnpauseAction::Always),
+    (
+        "settings.unpause_if_already_ready",
+        UnpauseAction::IfAlreadyReady,
+    ),
+    (
+        "settings.unpause_if_others_ready",
+        UnpauseAction::IfOthersReady,
+    ),
+    (
+        "settings.unpause_if_min_users_ready",
+        UnpauseAction::IfMinUsersReady,
+    ),
+    ("settings.unpause_always", UnpauseAction::Always),
 ];
 
 const PRIVACY_OPTIONS: [(&str, PrivacyMode); 3] = [
-    ("Send raw", PrivacyMode::SendRaw),
-    ("Send hashed", PrivacyMode::SendHashed),
-    ("Do not send", PrivacyMode::DoNotSend),
+    ("settings.privacy_send_raw", PrivacyMode::SendRaw),
+    ("settings.privacy_send_hashed", PrivacyMode::SendHashed),
+    ("settings.privacy_do_not_send", PrivacyMode::DoNotSend),
 ];
 
 const CHAT_INPUT_POSITION_OPTIONS: [(&str, ChatInputPosition); 3] = [
-    ("Top", ChatInputPosition::Top),
-    ("Middle", ChatInputPosition::Middle),
-    ("Bottom", ChatInputPosition::Bottom),
+    ("settings.position_top", ChatInputPosition::Top),
+    ("settings.position_middle", ChatInputPosition::Middle),
+    ("settings.position_bottom", ChatInputPosition::Bottom),
 ];
 
 const CHAT_OUTPUT_MODE_OPTIONS: [(&str, ChatOutputMode); 2] = [
-    ("Chatroom", ChatOutputMode::Chatroom),
-    ("Scrolling", ChatOutputMode::Scrolling),
+    ("settings.chat_mode_chatroom", ChatOutputMode::Chatroom),
+    ("settings.chat_mode_scrolling", ChatOutputMode::Scrolling),
 ];
 
 const UPDATE_CHECK_OPTIONS: [(&str, Option<bool>); 3] = [
-    ("Use default", None),
-    ("Enabled", Some(true)),
-    ("Disabled", Some(false)),
+    ("settings.update_use_default", None),
+    ("settings.update_enabled", Some(true)),
+    ("settings.update_disabled", Some(false)),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -143,6 +156,11 @@ pub struct SettingsDialog {
 
     // Misc
     check_for_updates: Entity<SelectState<Vec<String>>>,
+    language: Entity<SelectState<Vec<String>>>,
+    // Locale the select labels were last built with; a mismatch in render
+    // means the language switched while the dialog is open and every
+    // translated select needs its items rebuilt.
+    applied_language: String,
 
     // Player; saved immediately like the old connection dialog did, not via
     // the debounced user-preferences draft.
@@ -377,6 +395,33 @@ impl SettingsDialog {
         );
         subscriptions.push(sub);
 
+        // Language labels are native names (English, 简体中文, ...), which are
+        // locale-independent by design so the picker stays readable in any UI
+        // language.
+        let language_labels: Vec<String> = i18n::LANGUAGES
+            .iter()
+            .map(|(_, name)| (*name).to_string())
+            .collect();
+        let language_selected = i18n::LANGUAGES
+            .iter()
+            .position(|(code, _)| *code == user.language)
+            .map(IndexPath::new);
+        let language =
+            cx.new(|cx| SelectState::new(language_labels, language_selected, window, cx));
+        subscriptions.push(cx.subscribe_in(
+            &language,
+            window,
+            |this, select, event: &SelectEvent<Vec<String>>, window, cx| {
+                if !matches!(event, SelectEvent::Confirm(Some(_))) {
+                    return;
+                }
+                if let Some(ix) = select.read(cx).selected_index(cx) {
+                    let code = i18n::LANGUAGES[ix.row].0.to_string();
+                    this.edit_user_draft(window, cx, |user| user.language = code);
+                }
+            },
+        ));
+
         let player_path_value = store.read(cx).config.player.player_path.clone();
         let player_args_value = store.read(cx).config.player.player_arguments.join(" ");
         let player_path = cx.new(|cx| {
@@ -479,6 +524,8 @@ impl SettingsDialog {
             chat_timeout,
             osd_duration,
             check_for_updates,
+            language,
+            applied_language: rust_i18n::locale().to_string(),
             player_select,
             player_path,
             player_args,
@@ -557,10 +604,7 @@ impl SettingsDialog {
     where
         T: PartialEq + Clone + 'static,
     {
-        let labels: Vec<String> = options
-            .iter()
-            .map(|(label, _)| (*label).to_string())
-            .collect();
+        let labels: Vec<String> = option_labels(options);
         let selected_ix = options
             .iter()
             .position(|(_, value)| value == selected)
@@ -569,12 +613,12 @@ impl SettingsDialog {
         let subscription = cx.subscribe_in(
             &state,
             window,
-            move |this, _, event: &SelectEvent<Vec<String>>, window, cx| {
-                let SelectEvent::Confirm(Some(label)) = event else {
+            move |this, select, event: &SelectEvent<Vec<String>>, window, cx| {
+                if !matches!(event, SelectEvent::Confirm(Some(_))) {
                     return;
-                };
-                if let Some((_, value)) = options.iter().find(|(text, _)| *text == label.as_str()) {
-                    let value = value.clone();
+                }
+                if let Some(ix) = select.read(cx).selected_index(cx) {
+                    let value = options[ix.row].1.clone();
                     this.edit_user_draft(window, cx, |user| apply(user, value));
                 }
             },
@@ -585,7 +629,7 @@ impl SettingsDialog {
     fn checkbox(
         &self,
         id: &'static str,
-        label: &'static str,
+        label: SharedString,
         checked: bool,
         apply: fn(&mut UserPreferences, bool),
         cx: &mut Context<Self>,
@@ -621,7 +665,7 @@ impl SettingsDialog {
         };
 
         let mut items: Vec<String> = players.iter().map(player_label).collect();
-        items.push(CUSTOM_PATH_LABEL.to_string());
+        items.push(custom_path_label());
 
         let selected = if player_path == "custom" {
             Some(IndexPath::new(items.len() - 1))
@@ -638,7 +682,7 @@ impl SettingsDialog {
     }
 
     fn on_player_selected(&mut self, label: String, window: &mut Window, cx: &mut Context<Self>) {
-        if label == CUSTOM_PATH_LABEL {
+        if label == custom_path_label() {
             self.player_path.update(cx, |input, cx| {
                 input.set_value("", window, cx);
             });
@@ -867,15 +911,73 @@ impl SettingsDialog {
             window,
             cx,
         );
+        // Language labels are locale-independent native names, so only the
+        // selection tracks the draft.
+        let language_ix = i18n::LANGUAGES
+            .iter()
+            .position(|(code, _)| *code == user.language)
+            .map(IndexPath::new);
+        if self.language.read(cx).selected_index(cx) != language_ix {
+            self.language.update(cx, |select, cx| {
+                select.set_selected_index(language_ix, window, cx);
+            });
+        }
+    }
+
+    fn relabel_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let user = self.draft_user.clone();
+        sync_select(
+            &self.unpause_action,
+            &UNPAUSE_OPTIONS,
+            &user.unpause_action,
+            window,
+            cx,
+        );
+        sync_select(
+            &self.filename_privacy_mode,
+            &PRIVACY_OPTIONS,
+            &user.filename_privacy_mode,
+            window,
+            cx,
+        );
+        sync_select(
+            &self.filesize_privacy_mode,
+            &PRIVACY_OPTIONS,
+            &user.filesize_privacy_mode,
+            window,
+            cx,
+        );
+        sync_select(
+            &self.chat_input_position,
+            &CHAT_INPUT_POSITION_OPTIONS,
+            &user.chat_input_position,
+            window,
+            cx,
+        );
+        sync_select(
+            &self.chat_output_mode,
+            &CHAT_OUTPUT_MODE_OPTIONS,
+            &user.chat_output_mode,
+            window,
+            cx,
+        );
+        sync_select(
+            &self.check_for_updates,
+            &UPDATE_CHECK_OPTIONS,
+            &user.check_for_updates_automatically,
+            window,
+            cx,
+        );
+        self.sync_player_select(window, cx);
     }
 
     fn render_save_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
-        let status: Option<(&'static str, Hsla)> = match self.save_status {
+        let status: Option<(String, Hsla)> = match self.save_status {
             SaveStatus::Idle => None,
-            SaveStatus::Saving => Some(("Saving...", muted)),
-            SaveStatus::Saved => Some(("Saved.", cx.theme().success)),
-            SaveStatus::Failed => Some(("Save failed.", cx.theme().danger)),
+            SaveStatus::Saving => Some((t!("settings.saving").to_string(), muted)),
+            SaveStatus::Saved => Some((t!("settings.saved").to_string(), cx.theme().success)),
+            SaveStatus::Failed => Some((t!("settings.save_failed").to_string(), cx.theme().danger)),
         };
         v_flex()
             .gap_1()
@@ -886,7 +988,7 @@ impl SettingsDialog {
                         div()
                             .text_xs()
                             .text_color(muted)
-                            .child("Changes are saved automatically."),
+                            .child(t!("settings.autosave_note")),
                     )
                     .when_some(status, |this, (text, color)| {
                         this.child(div().text_xs().text_color(color).child(text))
@@ -916,12 +1018,12 @@ impl SettingsDialog {
             div()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child("No players detected. Enter path manually.")
+                .child(t!("settings.no_players"))
                 .into_any_element()
         } else {
             Select::new(&self.player_select)
                 .w_full()
-                .placeholder("Select a player...")
+                .placeholder(t!("settings.select_player"))
                 .into_any_element()
         };
 
@@ -936,7 +1038,7 @@ impl SettingsDialog {
                                 div()
                                     .text_sm()
                                     .font_weight(FontWeight::MEDIUM)
-                                    .child("Media Player"),
+                                    .child(t!("settings.media_player")),
                             )
                             .child(
                                 h_flex()
@@ -946,7 +1048,7 @@ impl SettingsDialog {
                                             div()
                                                 .text_xs()
                                                 .text_color(cx.theme().muted_foreground)
-                                                .child(format!("Last checked {label}")),
+                                                .child(t!("settings.last_checked", time = label)),
                                         )
                                     })
                                     .child(
@@ -954,9 +1056,9 @@ impl SettingsDialog {
                                             .outline()
                                             .xsmall()
                                             .label(if players_refreshing {
-                                                "Refreshing..."
+                                                t!("settings.refreshing")
                                             } else {
-                                                "Refresh Players"
+                                                t!("settings.refresh_players")
                                             })
                                             .disabled(players_refreshing)
                                             .on_click(cx.listener(|this, _, _, cx| {
@@ -974,16 +1076,16 @@ impl SettingsDialog {
         {
             form = form.child(
                 field()
-                    .label("Player Path (Manual)")
+                    .label(t!("settings.player_path_label").to_string())
                     .child(Input::new(&self.player_path))
-                    .description("Full path to media player executable"),
+                    .description(t!("settings.player_path_desc").to_string()),
             );
         }
         form.child(
             field()
-                .label("Player Arguments")
+                .label(t!("settings.player_args_label").to_string())
                 .child(Input::new(&self.player_args))
-                .description("Arguments applied when launching the player"),
+                .description(t!("settings.player_args_desc").to_string()),
         )
     }
 
@@ -994,27 +1096,27 @@ impl SettingsDialog {
                 v_form()
                     .child(
                         field()
-                            .label("Seek Threshold Rewind (seconds)")
+                            .label(t!("settings.seek_rewind").to_string())
                             .child(NumberInput::new(&self.seek_threshold_rewind)),
                     )
                     .child(
                         field()
-                            .label("Seek Threshold Fastforward (seconds)")
+                            .label(t!("settings.seek_fastforward").to_string())
                             .child(NumberInput::new(&self.seek_threshold_fastforward)),
                     )
                     .child(
                         field()
-                            .label("Slowdown Threshold (seconds)")
+                            .label(t!("settings.slowdown_threshold").to_string())
                             .child(NumberInput::new(&self.slowdown_threshold)),
                     )
                     .child(
                         field()
-                            .label("Slowdown Reset Threshold (seconds)")
+                            .label(t!("settings.slowdown_reset").to_string())
                             .child(NumberInput::new(&self.slowdown_reset_threshold)),
                     )
                     .child(
                         field()
-                            .label("Slowdown Rate (0-1)")
+                            .label(t!("settings.slowdown_rate").to_string())
                             .child(NumberInput::new(&self.slowdown_rate)),
                     ),
             )
@@ -1025,28 +1127,28 @@ impl SettingsDialog {
                             .gap_2()
                             .child(self.checkbox(
                                 "slow_on_desync",
-                                "Slow down on desync",
+                                t!("settings.slow_on_desync").into(),
                                 self.draft_user.slow_on_desync,
                                 |user, value| user.slow_on_desync = value,
                                 cx,
                             ))
                             .child(self.checkbox(
                                 "rewind_on_desync",
-                                "Rewind on desync",
+                                t!("settings.rewind_on_desync").into(),
                                 self.draft_user.rewind_on_desync,
                                 |user, value| user.rewind_on_desync = value,
                                 cx,
                             ))
                             .child(self.checkbox(
                                 "fastforward_on_desync",
-                                "Fast-forward on desync",
+                                t!("settings.fastforward_on_desync").into(),
                                 self.draft_user.fastforward_on_desync,
                                 |user, value| user.fastforward_on_desync = value,
                                 cx,
                             ))
                             .child(self.checkbox(
                                 "dont_slow_down_with_me",
-                                "Do not slow down with me",
+                                t!("settings.dont_slow_with_me").into(),
                                 self.draft_user.dont_slow_down_with_me,
                                 |user, value| user.dont_slow_down_with_me = value,
                                 cx,
@@ -1066,14 +1168,14 @@ impl SettingsDialog {
                             .gap_2()
                             .child(self.checkbox(
                                 "ready_at_start",
-                                "Ready at startup",
+                                t!("settings.ready_at_start").into(),
                                 self.draft_user.ready_at_start,
                                 |user, value| user.ready_at_start = value,
                                 cx,
                             ))
                             .child(self.checkbox(
                                 "pause_on_leave",
-                                "Pause when someone leaves the room",
+                                t!("settings.pause_on_leave").into(),
                                 self.draft_user.pause_on_leave,
                                 |user, value| user.pause_on_leave = value,
                                 cx,
@@ -1084,7 +1186,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("Unpause behavior")
+                        .label(t!("settings.unpause_behavior").to_string())
                         .child(Select::new(&self.unpause_action).w_full()),
                 ),
             )
@@ -1095,14 +1197,14 @@ impl SettingsDialog {
                             .gap_2()
                             .child(self.checkbox(
                                 "autoplay_enabled",
-                                "Enable auto-play when all ready",
+                                t!("settings.autoplay_enabled").into(),
                                 self.draft_user.autoplay_enabled,
                                 |user, value| user.autoplay_enabled = value,
                                 cx,
                             ))
                             .child(self.checkbox(
                                 "autoplay_require_same_filenames",
-                                "Require same filenames for auto-play",
+                                t!("settings.autoplay_same_names").into(),
                                 self.draft_user.autoplay_require_same_filenames,
                                 |user, value| user.autoplay_require_same_filenames = value,
                                 cx,
@@ -1113,9 +1215,9 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("Auto-play minimum users")
+                        .label(t!("settings.autoplay_min_users").to_string())
                         .child(NumberInput::new(&self.autoplay_min_users))
-                        .description("Use -1 to disable minimum."),
+                        .description(t!("settings.autoplay_min_desc").to_string()),
                 ),
             )
     }
@@ -1124,12 +1226,12 @@ impl SettingsDialog {
         v_form()
             .child(
                 field()
-                    .label("Filename privacy")
+                    .label(t!("settings.filename_privacy").to_string())
                     .child(Select::new(&self.filename_privacy_mode).w_full()),
             )
             .child(
                 field()
-                    .label("Filesize privacy")
+                    .label(t!("settings.filesize_privacy").to_string())
                     .child(Select::new(&self.filesize_privacy_mode).w_full()),
             )
     }
@@ -1144,14 +1246,14 @@ impl SettingsDialog {
                             .gap_2()
                             .child(self.checkbox(
                                 "chat_input_enabled",
-                                "Enable chat input",
+                                t!("settings.chat_input_enabled").into(),
                                 self.draft_user.chat_input_enabled,
                                 |user, value| user.chat_input_enabled = value,
                                 cx,
                             ))
                             .child(self.checkbox(
                                 "chat_direct_input",
-                                "Direct input mode",
+                                t!("settings.chat_direct_input").into(),
                                 self.draft_user.chat_direct_input,
                                 |user, value| user.chat_direct_input = value,
                                 cx,
@@ -1162,7 +1264,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("Chat input position")
+                        .label(t!("settings.chat_input_position").to_string())
                         .child(Select::new(&self.chat_input_position).w_full()),
                 ),
             )
@@ -1171,29 +1273,29 @@ impl SettingsDialog {
                     .columns(2)
                     .child(
                         field()
-                            .label("Input font family")
+                            .label(t!("settings.input_font_family").to_string())
                             .child(Input::new(&self.chat_input_font_family)),
                     )
                     .child(
                         field()
-                            .label("Input font size")
+                            .label(t!("settings.input_font_size").to_string())
                             .child(NumberInput::new(&self.chat_input_relative_font_size)),
                     )
                     .child(
                         field()
-                            .label("Input font weight")
+                            .label(t!("settings.input_font_weight").to_string())
                             .child(NumberInput::new(&self.chat_input_font_weight)),
                     )
                     .child(
                         field()
-                            .label("Input font color")
+                            .label(t!("settings.input_font_color").to_string())
                             .child(Input::new(&self.chat_input_font_color)),
                     ),
             )
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "chat_input_font_underline",
-                    "Underline chat input",
+                    t!("settings.underline_input").into(),
                     self.draft_user.chat_input_font_underline,
                     |user, value| user.chat_input_font_underline = value,
                     cx,
@@ -1202,7 +1304,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "chat_output_enabled",
-                    "Enable chat output",
+                    t!("settings.chat_output_enabled").into(),
                     self.draft_user.chat_output_enabled,
                     |user, value| user.chat_output_enabled = value,
                     cx,
@@ -1211,7 +1313,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("Chat output mode")
+                        .label(t!("settings.chat_output_mode").to_string())
                         .child(Select::new(&self.chat_output_mode).w_full()),
                 ),
             )
@@ -1220,29 +1322,29 @@ impl SettingsDialog {
                     .columns(2)
                     .child(
                         field()
-                            .label("Output font family")
+                            .label(t!("settings.output_font_family").to_string())
                             .child(Input::new(&self.chat_output_font_family)),
                     )
                     .child(
                         field()
-                            .label("Output font size")
+                            .label(t!("settings.output_font_size").to_string())
                             .child(NumberInput::new(&self.chat_output_relative_font_size)),
                     )
                     .child(
                         field()
-                            .label("Output font weight")
+                            .label(t!("settings.output_font_weight").to_string())
                             .child(NumberInput::new(&self.chat_output_font_weight)),
                     )
                     .child(
                         field()
-                            .label("Chat max lines")
+                            .label(t!("settings.chat_max_lines").to_string())
                             .child(NumberInput::new(&self.chat_max_lines)),
                     ),
             )
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "chat_output_font_underline",
-                    "Underline chat output",
+                    t!("settings.underline_output").into(),
                     self.draft_user.chat_output_font_underline,
                     |user, value| user.chat_output_font_underline = value,
                     cx,
@@ -1253,24 +1355,24 @@ impl SettingsDialog {
                     .columns(3)
                     .child(
                         field()
-                            .label("Top margin")
+                            .label(t!("settings.top_margin").to_string())
                             .child(NumberInput::new(&self.chat_top_margin)),
                     )
                     .child(
                         field()
-                            .label("Left margin")
+                            .label(t!("settings.left_margin").to_string())
                             .child(NumberInput::new(&self.chat_left_margin)),
                     )
                     .child(
                         field()
-                            .label("Bottom margin")
+                            .label(t!("settings.bottom_margin").to_string())
                             .child(NumberInput::new(&self.chat_bottom_margin)),
                     ),
             )
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "chat_move_osd",
-                    "Move OSD for chat",
+                    t!("settings.move_osd").into(),
                     self.draft_user.chat_move_osd,
                     |user, value| user.chat_move_osd = value,
                     cx,
@@ -1279,7 +1381,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("OSD margin")
+                        .label(t!("settings.osd_margin").to_string())
                         .child(NumberInput::new(&self.chat_osd_margin)),
                 ),
             )
@@ -1288,17 +1390,17 @@ impl SettingsDialog {
                     .columns(3)
                     .child(
                         field()
-                            .label("Notification timeout")
+                            .label(t!("settings.notification_timeout").to_string())
                             .child(NumberInput::new(&self.notification_timeout)),
                     )
                     .child(
                         field()
-                            .label("Alert timeout")
+                            .label(t!("settings.alert_timeout").to_string())
                             .child(NumberInput::new(&self.alert_timeout)),
                     )
                     .child(
                         field()
-                            .label("Chat timeout")
+                            .label(t!("settings.chat_timeout").to_string())
                             .child(NumberInput::new(&self.chat_timeout)),
                     ),
             )
@@ -1310,7 +1412,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("OSD Duration (ms)")
+                        .label(t!("settings.osd_duration").to_string())
                         .child(NumberInput::new(&self.osd_duration)),
                 ),
             )
@@ -1319,49 +1421,49 @@ impl SettingsDialog {
                     .columns(2)
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_osd",
-                        "Show OSD",
+                        t!("settings.show_osd").into(),
                         self.draft_user.show_osd,
                         |user, value| user.show_osd = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_osd_warnings",
-                        "Show OSD warnings",
+                        t!("settings.show_osd_warnings").into(),
                         self.draft_user.show_osd_warnings,
                         |user, value| user.show_osd_warnings = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_slowdown_osd",
-                        "Show slowdown OSD",
+                        t!("settings.show_slowdown_osd").into(),
                         self.draft_user.show_slowdown_osd,
                         |user, value| user.show_slowdown_osd = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_same_room_osd",
-                        "Show same room OSD",
+                        t!("settings.show_same_room_osd").into(),
                         self.draft_user.show_same_room_osd,
                         |user, value| user.show_same_room_osd = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_different_room_osd",
-                        "Show different room OSD",
+                        t!("settings.show_different_room_osd").into(),
                         self.draft_user.show_different_room_osd,
                         |user, value| user.show_different_room_osd = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_non_controller_osd",
-                        "Show non-controller OSD",
+                        t!("settings.show_non_controller_osd").into(),
                         self.draft_user.show_non_controller_osd,
                         |user, value| user.show_non_controller_osd = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_duration_notification",
-                        "Show duration notification",
+                        t!("settings.show_duration_notification").into(),
                         self.draft_user.show_duration_notification,
                         |user, value| user.show_duration_notification = value,
                         cx,
@@ -1373,9 +1475,16 @@ impl SettingsDialog {
         v_flex()
             .gap_4()
             .child(
+                v_form().child(
+                    field()
+                        .label(t!("settings.language").to_string())
+                        .child(Select::new(&self.language).w_full()),
+                ),
+            )
+            .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "auto-connect",
-                    "Auto-connect on startup",
+                    t!("settings.auto_connect").into(),
                     self.draft_user.auto_connect,
                     |user, value| user.auto_connect = value,
                     cx,
@@ -1384,7 +1493,7 @@ impl SettingsDialog {
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "autosave-joins",
-                    "Auto-save joined rooms",
+                    t!("settings.autosave_rooms").into(),
                     self.draft_user.autosave_joins_to_list,
                     |user, value| user.autosave_joins_to_list = value,
                     cx,
@@ -1393,14 +1502,14 @@ impl SettingsDialog {
             .child(
                 v_form().child(
                     field()
-                        .label("Check for updates automatically")
+                        .label(t!("settings.check_updates").to_string())
                         .child(Select::new(&self.check_for_updates).w_full()),
                 ),
             )
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "debug",
-                    "Enable debug logging",
+                    t!("settings.debug").into(),
                     self.draft_user.debug,
                     |user, value| user.debug = value,
                     cx,
@@ -1411,6 +1520,11 @@ impl SettingsDialog {
 
 impl Render for SettingsDialog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let locale = rust_i18n::locale().to_string();
+        if locale != self.applied_language {
+            self.applied_language = locale;
+            self.relabel_selects(window, cx);
+        }
         // Roughly the React max-h-[85vh] envelope once the dialog chrome
         // (title, paddings, margins) is added on top.
         let content_height = window.viewport_size().height * 0.75;
@@ -1420,13 +1534,13 @@ impl Render for SettingsDialog {
             .underline()
             .selected_index(tab_index)
             .children([
-                Tab::new().label("Player"),
-                Tab::new().label("Sync"),
-                Tab::new().label("Readiness"),
-                Tab::new().label("Privacy"),
-                Tab::new().label("Chat"),
-                Tab::new().label("OSD"),
-                Tab::new().label("Misc"),
+                Tab::new().label(t!("settings.tab_player")),
+                Tab::new().label(t!("settings.tab_sync")),
+                Tab::new().label(t!("settings.tab_readiness")),
+                Tab::new().label(t!("settings.tab_privacy")),
+                Tab::new().label(t!("settings.tab_chat")),
+                Tab::new().label(t!("settings.tab_osd")),
+                Tab::new().label(t!("settings.tab_misc")),
             ])
             .on_click(cx.listener(|this, ix, _, cx| {
                 this.active_tab = SettingsTab::from_index(*ix);
@@ -1508,11 +1622,21 @@ fn sync_select<T>(
         .iter()
         .position(|(_, option)| option == value)
         .map(IndexPath::new);
-    if select.read(cx).selected_index(cx) != target {
-        select.update(cx, |select, cx| {
+    select.update(cx, |select, cx| {
+        // Items carry translated labels, so a sync always rewrites them to
+        // catch a locale switch even when the selection itself is unchanged.
+        select.set_items(option_labels(options), window, cx);
+        if select.selected_index(cx) != target {
             select.set_selected_index(target, window, cx);
-        });
-    }
+        }
+    });
+}
+
+fn option_labels<T>(options: &[(&str, T)]) -> Vec<String> {
+    options
+        .iter()
+        .map(|(key, _)| i18n::tr(key).to_string())
+        .collect()
 }
 
 /// Open the settings dialog. A fresh snapshot of the store config is taken on
@@ -1538,11 +1662,18 @@ pub(crate) fn open_settings_dialog_at(
         view.update(cx, |this, cx| this.refresh_players(cx));
     }
     window.open_dialog(cx, move |dialog, _, _| {
-        dialog.title("Settings").w(px(896.)).child(view.clone())
+        dialog
+            .title(t!("settings.title"))
+            .w(px(896.))
+            .child(view.clone())
     });
 }
 
-const CUSTOM_PATH_LABEL: &str = "Custom path...";
+const CUSTOM_PATH_KEY: &str = "settings.custom_path";
+
+fn custom_path_label() -> String {
+    i18n::tr(CUSTOM_PATH_KEY).to_string()
+}
 
 fn player_label(player: &DetectedPlayer) -> String {
     match &player.version {

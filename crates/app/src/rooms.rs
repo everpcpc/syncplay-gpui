@@ -7,6 +7,7 @@ use gpui_kit::{
     div, prelude::FluentBuilder as _, AppContext as _, Context, ElementId, Entity, FontWeight,
     IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
+use rust_i18n::t;
 use syncplay_core::config::SyncplayConfig;
 
 use crate::store::AppStore;
@@ -22,9 +23,12 @@ pub struct RoomManagerDialog {
 
 impl RoomManagerDialog {
     pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let room_name = cx.new(|cx| InputState::new(window, cx).placeholder("Room name"));
-        let room_list_entry = cx.new(|cx| InputState::new(window, cx).placeholder("Add a room"));
-        let managed_room_name = cx.new(|cx| InputState::new(window, cx).placeholder("Room name"));
+        let room_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("rooms.room_name_ph")));
+        let room_list_entry =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("rooms.add_room_ph")));
+        let managed_room_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("rooms.room_name_ph")));
         let controller_password =
             cx.new(|cx| InputState::new(window, cx).placeholder("AA-000-000"));
 
@@ -133,7 +137,13 @@ impl RoomManagerDialog {
             return;
         }
         if self.store.read(cx).config.user.room_list.contains(&room) {
-            window.push_notification((NotificationType::Warning, "Room already exists"), cx);
+            window.push_notification(
+                (
+                    NotificationType::Warning,
+                    t!("rooms.room_exists").to_string(),
+                ),
+                cx,
+            );
             self.room_list_entry.update(cx, |input, cx| {
                 input.set_value("", window, cx);
             });
@@ -155,7 +165,7 @@ impl RoomManagerDialog {
 
     fn render_section_label(
         &self,
-        label: &'static str,
+        label: gpui_kit::SharedString,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         div()
@@ -176,7 +186,7 @@ impl RoomManagerDialog {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(self.render_section_label("Server Rooms", cx))
+                    .child(self.render_section_label(t!("rooms.server_rooms").into(), cx))
                     .when(persistent, |this| {
                         this.child(
                             div()
@@ -186,7 +196,7 @@ impl RoomManagerDialog {
                                 .border_1()
                                 .border_color(cx.theme().info)
                                 .bg(cx.theme().info.opacity(0.15))
-                                .child("Persistent"),
+                                .child(t!("rooms.persistent")),
                         )
                     }),
             )
@@ -195,7 +205,7 @@ impl RoomManagerDialog {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child("No rooms advertised by the server."),
+                        .child(t!("rooms.no_server_rooms")),
                 )
             })
             .children(rooms.iter().map(|room| {
@@ -220,7 +230,11 @@ impl RoomManagerDialog {
                         Button::new((ElementId::from("join-room"), room.clone()))
                             .secondary()
                             .xsmall()
-                            .label(if is_current { "Current" } else { "Join" })
+                            .label(if is_current {
+                                t!("rooms.current")
+                            } else {
+                                t!("rooms.join")
+                            })
                             .disabled(is_current)
                             .on_click(cx.listener({
                                 let room = room.clone();
@@ -237,7 +251,7 @@ impl RoomManagerDialog {
             .child(
                 v_flex()
                     .gap_2()
-                    .child(self.render_section_label("Create Managed Room", cx))
+                    .child(self.render_section_label(t!("rooms.create_managed").into(), cx))
                     .child(
                         h_flex()
                             .gap_2()
@@ -245,7 +259,7 @@ impl RoomManagerDialog {
                             .child(
                                 Button::new("create-managed-room")
                                     .primary()
-                                    .label("Create")
+                                    .label(t!("rooms.create"))
                                     .on_click(
                                         cx.listener(|this, _, _, cx| this.create_managed_room(cx)),
                                     ),
@@ -255,7 +269,7 @@ impl RoomManagerDialog {
             .child(
                 v_flex()
                     .gap_2()
-                    .child(self.render_section_label("Authenticate as Room Operator", cx))
+                    .child(self.render_section_label(t!("rooms.auth_operator").into(), cx))
                     .child(
                         h_flex()
                             .gap_2()
@@ -263,7 +277,7 @@ impl RoomManagerDialog {
                             .child(
                                 Button::new("identify-controller")
                                     .primary()
-                                    .label("Authenticate")
+                                    .label(t!("rooms.authenticate"))
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.identify_as_controller(window, cx)
                                     })),
@@ -279,7 +293,7 @@ impl RoomManagerDialog {
 
         v_flex()
             .gap_2()
-            .child(self.render_section_label("Saved Rooms", cx))
+            .child(self.render_section_label(t!("rooms.saved_rooms").into(), cx))
             .child(
                 h_flex()
                     .gap_2()
@@ -287,7 +301,7 @@ impl RoomManagerDialog {
                     .child(
                         Button::new("add-saved-room")
                             .primary()
-                            .label("Add")
+                            .label(t!("common.add"))
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.add_saved_room(window, cx)),
                             ),
@@ -298,7 +312,7 @@ impl RoomManagerDialog {
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child("No rooms saved."),
+                        .child(t!("rooms.no_saved")),
                 )
             })
             .children(room_list.iter().map(|room| {
@@ -332,7 +346,7 @@ impl RoomManagerDialog {
                                         .border_1()
                                         .border_color(cx.theme().info)
                                         .bg(cx.theme().info.opacity(0.15))
-                                        .child("Default"),
+                                        .child(t!("rooms.default")),
                                 )
                             }),
                     )
@@ -345,7 +359,7 @@ impl RoomManagerDialog {
                                     Button::new((ElementId::from("make-default"), room.clone()))
                                         .ghost()
                                         .xsmall()
-                                        .label("Make default")
+                                        .label(t!("rooms.make_default"))
                                         .on_click(cx.listener({
                                             let room = room.clone();
                                             move |this, _, _, cx| {
@@ -360,7 +374,7 @@ impl RoomManagerDialog {
                                 Button::new((ElementId::from("remove-room"), room.clone()))
                                     .ghost()
                                     .xsmall()
-                                    .label("Remove")
+                                    .label(t!("common.remove"))
                                     .text_color(cx.theme().danger)
                                     .on_click(cx.listener({
                                         let room = room.clone();
@@ -392,12 +406,12 @@ impl Render for RoomManagerDialog {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Manage room connections and defaults."),
+                    .child(t!("rooms.description")),
             )
             .child(
                 v_flex()
                     .gap_2()
-                    .child(self.render_section_label("Connect to Room", cx))
+                    .child(self.render_section_label(t!("rooms.connect_title").into(), cx))
                     .child(
                         h_flex()
                             .gap_2()
@@ -405,7 +419,7 @@ impl Render for RoomManagerDialog {
                             .child(
                                 Button::new("connect-to-room")
                                     .primary()
-                                    .label("Connect")
+                                    .label(t!("common.connect"))
                                     .on_click(
                                         cx.listener(|this, _, _, cx| {
                                             this.connect_to_room(None, cx)

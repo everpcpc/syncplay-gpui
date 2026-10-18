@@ -6,6 +6,7 @@
 mod chat;
 mod connection;
 mod events;
+mod i18n;
 mod playlist;
 mod rooms;
 mod root;
@@ -13,6 +14,8 @@ mod settings;
 mod store;
 mod updater;
 mod users;
+
+rust_i18n::i18n!("locales", fallback = "en");
 
 use std::sync::Arc;
 
@@ -92,6 +95,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             apply_theme(&theme, None, cx);
+            i18n::apply_language(&config.user.language);
 
             let mut window_options = TitleBar::window_options();
             window_options.window_bounds = Some(WindowBounds::centered(window_size, cx));

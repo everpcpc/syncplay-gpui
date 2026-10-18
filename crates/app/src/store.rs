@@ -5,6 +5,7 @@ use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::theme::{Theme, ThemeMode};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::{Context, EventEmitter, Task, Window};
+use rust_i18n::t;
 use syncplay_core::app_state::AppState;
 use syncplay_core::commands;
 use syncplay_core::commands::playlist::PlaylistItemInfo;
@@ -175,7 +176,7 @@ impl AppStore {
                     window.push_notification(
                         (
                             NotificationType::Error,
-                            format!("Connection failed: {error}"),
+                            t!("notify.connection_failed", error = error).to_string(),
                         ),
                         cx,
                     );
@@ -209,7 +210,7 @@ impl AppStore {
                     window.push_notification(
                         (
                             NotificationType::Info,
-                            format!("Update available: v{version}"),
+                            t!("notify.update_available", version = version).to_string(),
                         ),
                         cx,
                     );
@@ -218,7 +219,10 @@ impl AppStore {
                     self.update_state = UpdateState::Idle;
                     if manual {
                         window.push_notification(
-                            (NotificationType::Success, "Already up to date"),
+                            (
+                                NotificationType::Success,
+                                t!("notify.up_to_date").to_string(),
+                            ),
                             cx,
                         );
                     }
@@ -229,7 +233,7 @@ impl AppStore {
                         window.push_notification(
                             (
                                 NotificationType::Error,
-                                format!("Update check failed: {error}"),
+                                t!("notify.update_check_failed", error = error).to_string(),
                             ),
                             cx,
                         );
@@ -244,7 +248,7 @@ impl AppStore {
                     window.push_notification(
                         (
                             NotificationType::Success,
-                            format!("v{version} installed — restart to finish"),
+                            t!("notify.update_installed", version = version).to_string(),
                         ),
                         cx,
                     );
@@ -254,7 +258,10 @@ impl AppStore {
                         self.update_state = UpdateState::Available(version.clone());
                     }
                     window.push_notification(
-                        (NotificationType::Error, format!("Update failed: {error}")),
+                        (
+                            NotificationType::Error,
+                            t!("notify.update_failed", error = error).to_string(),
+                        ),
                         cx,
                     );
                 }
@@ -276,7 +283,10 @@ impl AppStore {
                     if event.connected {
                         if let Some(server) = event.server.as_deref() {
                             window.push_notification(
-                                (NotificationType::Success, format!("Connected to {server}")),
+                                (
+                                    NotificationType::Success,
+                                    t!("root.connected_to", server = server).to_string(),
+                                ),
                                 cx,
                             );
                         }
@@ -346,6 +356,7 @@ impl AppStore {
             "config-updated" => {
                 if let Ok(config) = serde_json::from_value::<SyncplayConfig>(payload) {
                     apply_theme(&config.user.theme, Some(window), cx);
+                    crate::i18n::apply_language(&config.user.language);
                     if config.player.media_directories != self.config.player.media_directories {
                         let items = self.playlist.items.clone();
                         self.schedule_availability_check(true, &items);

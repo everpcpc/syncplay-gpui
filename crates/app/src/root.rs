@@ -17,6 +17,7 @@ use gpui_kit::{
     InteractiveElement as _, IntoElement, ParentElement as _, Pixels, Render, SharedString,
     Styled as _, Subscription, Task, Window,
 };
+use rust_i18n::t;
 
 pub struct RootView {
     store: Entity<AppStore>,
@@ -88,7 +89,10 @@ impl RootView {
 
     fn disconnect(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.store.read(cx).disconnect();
-        window.push_notification((NotificationType::Info, "Disconnected from server"), cx);
+        window.push_notification(
+            (NotificationType::Info, t!("root.disconnected").to_string()),
+            cx,
+        );
     }
 
     fn toggle_theme(&self, cx: &mut Context<Self>) {
@@ -244,9 +248,9 @@ impl RootView {
                                 .icon(playlist_icon)
                                 .tooltip_placement(Placement::Right)
                                 .tooltip(if show_playlist {
-                                    "Hide playlist"
+                                    t!("root.hide_playlist")
                                 } else {
-                                    "Show playlist"
+                                    t!("root.show_playlist")
                                 })
                                 .on_click(cx.listener(|this, _, _, cx| this.toggle_playlist(cx))),
                         )
@@ -259,9 +263,9 @@ impl RootView {
                             .icon(theme_icon)
                             .tooltip_placement(Placement::Right)
                             .tooltip(if light_theme {
-                                "Theme light"
+                                t!("root.theme_light")
                             } else {
-                                "Theme dark"
+                                t!("root.theme_dark")
                             })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_theme(cx))),
                     )
@@ -276,7 +280,7 @@ impl RootView {
                                 .occlude()
                                 .icon(IconName::Link2Off)
                                 .tooltip_placement(Placement::Right)
-                                .tooltip("Disconnect from server")
+                                .tooltip(t!("root.disconnect_tooltip"))
                                 .text_color(cx.theme().danger)
                                 .on_click(
                                     cx.listener(|this, _, window, cx| this.disconnect(window, cx)),
@@ -290,7 +294,7 @@ impl RootView {
                             .occlude()
                             .icon(IconName::Settings)
                             .tooltip_placement(Placement::Right)
-                            .tooltip("Settings")
+                            .tooltip(t!("settings.title"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 crate::settings::open_settings_dialog(
                                     window,
@@ -383,16 +387,19 @@ impl RootView {
                                     let absolute = offset.abs();
                                     let in_sync = absolute < 1.0;
                                     let (label, color) = if in_sync {
-                                        ("in sync".to_string(), cx.theme().success)
+                                        (t!("root.in_sync").to_string(), cx.theme().success)
                                     } else {
                                         let label = if absolute >= 10.0 {
                                             format!("{absolute:.0}")
                                         } else {
                                             format!("{absolute:.1}")
                                         };
-                                        let direction =
-                                            if offset < 0.0 { "behind" } else { "ahead" };
-                                        (format!("{direction} {label}s"), cx.theme().warning)
+                                        let text = if offset < 0.0 {
+                                            t!("root.behind", n = label).to_string()
+                                        } else {
+                                            t!("root.ahead", n = label).to_string()
+                                        };
+                                        (text, cx.theme().warning)
                                     };
                                     this.child(
                                         div()
@@ -459,9 +466,9 @@ impl RootView {
         let indexing = store.media_index_refreshing;
 
         let status_text: SharedString = match (connected, server) {
-            (true, Some(server)) => format!("Connected to {server}").into(),
-            (true, None) => "Connected".into(),
-            (false, _) => "Not connected".into(),
+            (true, Some(server)) => t!("root.connected_to", server = server).to_string().into(),
+            (true, None) => t!("root.connected").to_string().into(),
+            (false, _) => t!("common.not_connected").to_string().into(),
         };
 
         StatusBar::new()
@@ -484,7 +491,7 @@ impl RootView {
                             div()
                                 .text_xs()
                                 .text_color(cx.theme().muted_foreground)
-                                .child("· Indexing media…"),
+                                .child(format!("· {}", t!("root.indexing"))),
                         )
                     }),
             )
@@ -539,7 +546,7 @@ impl RootView {
                 .xsmall()
                 .label(concat!("v", env!("CARGO_PKG_VERSION")))
                 .tooltip_placement(Placement::Right)
-                .tooltip("Check for updates")
+                .tooltip(t!("root.check_updates"))
                 .text_color(muted)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.store
@@ -549,7 +556,7 @@ impl RootView {
             UpdateState::Checking => div()
                 .text_xs()
                 .text_color(muted)
-                .child("Checking for updates…")
+                .child(t!("root.checking_updates"))
                 .into_any_element(),
             UpdateState::Available(version) => Button::new("install-update")
                 .ghost()
@@ -557,7 +564,7 @@ impl RootView {
                 .icon(IconName::Download)
                 .label(format!("v{version}"))
                 .tooltip_placement(Placement::Right)
-                .tooltip("Download and install")
+                .tooltip(t!("root.download_install"))
                 .text_color(cx.theme().info)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.store.update(cx, |store, cx| store.install_update(cx));
@@ -566,15 +573,15 @@ impl RootView {
             UpdateState::Installing(_) => div()
                 .text_xs()
                 .text_color(muted)
-                .child("Updating…")
+                .child(t!("root.updating"))
                 .into_any_element(),
             UpdateState::Ready(version) => Button::new("restart-for-update")
                 .primary()
                 .xsmall()
                 .icon(IconName::RotateCw)
-                .label("Restart")
+                .label(t!("root.restart").to_string())
                 .tooltip_placement(Placement::Right)
-                .tooltip(format!("Restart to finish v{version}"))
+                .tooltip(t!("root.restart_to_finish", version = version))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.store.read(cx).restart_for_update();
                 }))
@@ -739,7 +746,7 @@ fn restore_primary_later(
 
 fn display_filename(filename: Option<&str>) -> SharedString {
     let Some(filename) = filename else {
-        return "No file loaded".into();
+        return t!("root.no_file").to_string().into();
     };
     filename
         .rsplit(['/', '\\'])
