@@ -233,7 +233,7 @@ fn get_vlc_paths() -> Vec<PathBuf> {
 
 #[cfg(not(target_os = "windows"))]
 fn get_vlc_paths() -> Vec<PathBuf> {
-    let mut paths = vec![
+    let paths = vec![
         PathBuf::from("/usr/bin/vlc"),
         PathBuf::from("/usr/bin/vlc-wrapper"),
         PathBuf::from("/Applications/VLC.app/Contents/MacOS/VLC"),
@@ -244,9 +244,13 @@ fn get_vlc_paths() -> Vec<PathBuf> {
         PathBuf::from("vlc"),
     ];
     #[cfg(target_os = "macos")]
-    if let Some(home) = dirs::home_dir() {
-        paths.push(home.join("Applications/VLC.app/Contents/MacOS/VLC"));
-    }
+    let paths = {
+        let mut paths = paths;
+        if let Some(home) = dirs::home_dir() {
+            paths.push(home.join("Applications/VLC.app/Contents/MacOS/VLC"));
+        }
+        paths
+    };
     paths
 }
 
