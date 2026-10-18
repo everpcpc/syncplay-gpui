@@ -58,11 +58,14 @@ This client is compatible with Syncplay protocol version 1.7.x and can connect t
 
 ## Installation
 
-Prebuilt packages are attached to each [release](https://github.com/everpcpc/syncplay-gpui/releases):
+Download the latest release for your platform — these links always point at the newest version:
 
-- **macOS**: signed and notarized `Syncplay` DMGs for Apple silicon (`aarch64`) and Intel (`x64`)
-- **Windows**: a per-user NSIS installer (`x64-setup.exe`, no admin required)
-- **Linux / portable**: raw binary archives (`tar.gz` / `zip`) that the in-app updater also consumes
+- **macOS (Apple silicon)**: [syncplay_aarch64.dmg](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_aarch64.dmg)
+- **macOS (Intel)**: [syncplay_x64.dmg](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x64.dmg)
+- **Windows**: [syncplay_x64-setup.exe](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x64-setup.exe) — per-user NSIS installer, no admin required
+- **Linux**: [syncplay_x86_64-unknown-linux-gnu.tar.gz](https://github.com/everpcpc/syncplay-gpui/releases/latest/download/syncplay_x86_64-unknown-linux-gnu.tar.gz)
+
+The full asset list (including portable `tar.gz` / `zip` archives, which the in-app updater also consumes) is on the [releases page](https://github.com/everpcpc/syncplay-gpui/releases).
 
 The app can update itself from the status bar (or automatically on startup) using the GitHub releases feed.
 
