@@ -308,6 +308,7 @@ impl Render for ConnectPanel {
                                 .child(
                                     div()
                                         .flex_1()
+                                        .min_w_0()
                                         .text_sm()
                                         .text_color(cx.theme().foreground)
                                         .child(t!("conn.player_warning")),
@@ -316,6 +317,7 @@ impl Render for ConnectPanel {
                                     Button::new("open-player-settings")
                                         .secondary()
                                         .xsmall()
+                                        .flex_shrink_0()
                                         .label(t!("conn.choose_player"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             open_settings_dialog_at(
@@ -344,6 +346,7 @@ impl Render for ConnectPanel {
                                 .child(
                                     div()
                                         .flex_1()
+                                        .min_w_0()
                                         .text_sm()
                                         .text_color(cx.theme().foreground)
                                         .child(error),
