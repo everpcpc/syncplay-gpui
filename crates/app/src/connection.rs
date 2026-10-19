@@ -6,13 +6,14 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 use gpui_kit::{
-    div, prelude::FluentBuilder as _, px, AppContext as _, Context, Entity, FontWeight,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Context, Entity, FontWeight,
     IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window,
 };
 use rust_i18n::t;
 use syncplay_core::config::ServerConfig;
 use syncplay_core::player::detection::player_path_resolves;
 
+use crate::rooms::{display_room_name, managed_seed_hint};
 use crate::settings::{open_settings_dialog_at, SettingsTab};
 use crate::store::{AppStore, ConnectParams, StoreEvent};
 
@@ -25,6 +26,9 @@ pub struct ConnectPanel {
     room: Entity<InputState>,
     password: Entity<InputState>,
     error: Option<SharedString>,
+    /// Raw `+name:hash` behind the stripped room input, so an untouched field
+    /// still joins as operator.
+    room_seed_raw: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -46,9 +50,11 @@ impl ConnectPanel {
             input.set_value(config.user.username.clone(), window, cx);
             input
         });
+        let (room_display, room_managed) = display_room_name(&config.user.default_room);
+        let room_seed_raw = room_managed.then_some(config.user.default_room.clone());
         let room = cx.new(|cx| {
             let mut input = InputState::new(window, cx).placeholder("default");
-            input.set_value(config.user.default_room.clone(), window, cx);
+            input.set_value(room_display.to_string(), window, cx);
             input
         });
         let password = cx.new(|cx| {
@@ -83,8 +89,11 @@ impl ConnectPanel {
                 input,
                 window,
                 |this, _, event: &InputEvent, _, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        this.connect(cx);
+                    match event {
+                        InputEvent::PressEnter { .. } => this.connect(cx),
+                        // The seed hint under the room input tracks the text live.
+                        InputEvent::Change => cx.notify(),
+                        _ => {}
                     }
                 },
             ));
@@ -97,6 +106,7 @@ impl ConnectPanel {
             room,
             password,
             error: None,
+            room_seed_raw,
             _subscriptions: subscriptions,
         }
     }
@@ -130,7 +140,7 @@ impl ConnectPanel {
         };
         self.error = None;
 
-        let room = self.room.read(cx).value().trim().to_string();
+        let room = self.room_from_input(cx);
         let password = {
             let value = self.password.read(cx).value().to_string();
             if value.is_empty() {
@@ -256,9 +266,23 @@ impl ConnectPanel {
             })
     }
 
+    /// Raw seed when the room input still shows its stripped form.
+    fn applicable_seed(&self, cx: &App) -> Option<String> {
+        let raw = self.room_seed_raw.as_ref()?;
+        (self.room.read(cx).value().trim() == display_room_name(raw).0).then(|| raw.clone())
+    }
+
+    /// Room the input refers to: the raw seed while the field still shows it
+    /// (stripped), otherwise the text as typed.
+    fn room_from_input(&self, cx: &App) -> String {
+        self.applicable_seed(cx)
+            .unwrap_or_else(|| self.room.read(cx).value().trim().to_string())
+    }
+
     fn render_room_input(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rooms = self.store.read(cx).config.user.room_list.clone();
         let room = self.room.clone();
+        let panel = cx.entity();
         let presets = Button::new("room-presets")
             .ghost()
             .xsmall()
@@ -266,14 +290,23 @@ impl ConnectPanel {
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.min_w(px(160.));
                 for value in rooms.clone() {
+                    let (display, managed) = display_room_name(&value);
+                    let label = if managed {
+                        format!("{} ({})", display, t!("rooms.managed"))
+                    } else {
+                        display.to_string()
+                    };
                     let room = room.clone();
-                    menu = menu.item(PopupMenuItem::new(value.clone()).on_click(
-                        move |_, window, cx| {
-                            room.update(cx, |input, cx| {
-                                input.set_value(value.clone(), window, cx);
-                            });
-                        },
-                    ));
+                    let panel = panel.clone();
+                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                        let (display, managed) = display_room_name(&value);
+                        room.update(cx, |input, cx| {
+                            input.set_value(display.to_string(), window, cx);
+                        });
+                        panel.update(cx, |this, _| {
+                            this.room_seed_raw = managed.then_some(value.clone());
+                        });
+                    }));
                 }
                 menu
             });
@@ -341,9 +374,14 @@ impl Render for ConnectPanel {
                                     .child(Input::new(&self.username)),
                             )
                             .child(
-                                field()
-                                    .label(t!("conn.room_label").to_string())
-                                    .child(self.render_room_input(cx)),
+                                field().label(t!("conn.room_label").to_string()).child(
+                                    v_flex()
+                                        .gap_2()
+                                        .child(self.render_room_input(cx))
+                                        .when_some(self.applicable_seed(cx), |this, raw| {
+                                            this.child(managed_seed_hint(&raw, cx))
+                                        }),
+                                ),
                             )
                             .child(
                                 field()

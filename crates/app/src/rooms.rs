@@ -1,23 +1,54 @@
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::notification::NotificationType;
+use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::component::{ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _};
+use gpui_kit::component::{ActiveTheme as _, Sizable as _, StyledExt as _, WindowExt as _};
 use gpui_kit::{
-    div, prelude::FluentBuilder as _, AppContext as _, Context, ElementId, Entity, FontWeight,
-    IntoElement, ParentElement as _, Render, Styled as _, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClipboardItem, Context, ElementId,
+    Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 use rust_i18n::t;
 use syncplay_core::config::SyncplayConfig;
 
 use crate::store::AppStore;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RoomManagerTab {
+    Switch,
+    Manage,
+}
+
+impl RoomManagerTab {
+    fn from_index(ix: usize) -> Self {
+        match ix {
+            1 => Self::Manage,
+            _ => Self::Switch,
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::Switch => 0,
+            Self::Manage => 1,
+        }
+    }
+}
+
 pub struct RoomManagerDialog {
     store: Entity<AppStore>,
     room_name: Entity<InputState>,
-    room_list_entry: Entity<InputState>,
     managed_room_name: Entity<InputState>,
     controller_password: Entity<InputState>,
+    /// Raw `+name:hash` behind the stripped switch-room input, so an untouched
+    /// field still joins as operator.
+    room_seed_raw: Option<String>,
+    tab: RoomManagerTab,
+    /// Row whose management buttons are revealed by hover, like the playlist.
+    hovered_room: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -25,8 +56,6 @@ impl RoomManagerDialog {
     pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let room_name =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("rooms.room_name_ph")));
-        let room_list_entry =
-            cx.new(|cx| InputState::new(window, cx).placeholder(t!("rooms.add_room_ph")));
         let managed_room_name =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("rooms.room_name_ph")));
         let controller_password =
@@ -38,17 +67,11 @@ impl RoomManagerDialog {
             &room_name,
             window,
             |this, _, event: &InputEvent, _, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.connect_to_room(None, cx);
-                }
-            },
-        ));
-        subscriptions.push(cx.subscribe_in(
-            &room_list_entry,
-            window,
-            |this, _, event: &InputEvent, window, cx| {
-                if matches!(event, InputEvent::PressEnter { .. }) {
-                    this.add_saved_room(window, cx);
+                match event {
+                    InputEvent::PressEnter { .. } => this.connect_to_room(None, cx),
+                    // The seed hint under the input tracks the text live.
+                    InputEvent::Change => cx.notify(),
+                    _ => {}
                 }
             },
         ));
@@ -74,15 +97,19 @@ impl RoomManagerDialog {
         Self {
             store,
             room_name,
-            room_list_entry,
             managed_room_name,
             controller_password,
+            room_seed_raw: None,
+            tab: RoomManagerTab::Switch,
+            hovered_room: None,
             _subscriptions: subscriptions,
         }
     }
 
     /// Reload the form from current state; runs on every dialog open.
     pub fn prepare(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tab = RoomManagerTab::Switch;
+        self.hovered_room = None;
         let (default_room, live_room) = {
             let store = self.store.read(cx);
             (store.config.user.default_room.clone(), live_room(store))
@@ -90,22 +117,35 @@ impl RoomManagerDialog {
         let managed_seed = live_room.as_deref().unwrap_or(default_room.as_str());
         let managed_seed = strip_managed_room_name(managed_seed).to_string();
 
+        let (room_display, room_managed) = display_room_name(&default_room);
+        let room_display = room_display.to_string();
+        self.room_seed_raw = room_managed.then_some(default_room);
         self.room_name.update(cx, |input, cx| {
-            input.set_value(default_room, window, cx);
+            input.set_value(room_display, window, cx);
         });
         self.managed_room_name.update(cx, |input, cx| {
             input.set_value(managed_seed, window, cx);
-        });
-        self.room_list_entry.update(cx, |input, cx| {
-            input.set_value("", window, cx);
         });
         self.controller_password.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
     }
 
+    /// Raw seed when the switch-room input still shows its stripped form.
+    fn applicable_seed(&self, cx: &App) -> Option<String> {
+        let raw = self.room_seed_raw.as_ref()?;
+        (self.room_name.read(cx).value().trim() == display_room_name(raw).0).then(|| raw.clone())
+    }
+
+    /// Room the switch-room input refers to: the raw seed while the field
+    /// still shows it (stripped), otherwise the text as typed.
+    fn room_from_input(&self, cx: &App) -> String {
+        self.applicable_seed(cx)
+            .unwrap_or_else(|| self.room_name.read(cx).value().trim().to_string())
+    }
+
     fn connect_to_room(&mut self, room: Option<String>, cx: &mut Context<Self>) {
-        let room = room.unwrap_or_else(|| self.room_name.read(cx).value().trim().to_string());
+        let room = room.unwrap_or_else(|| self.room_from_input(cx));
         if room.is_empty() {
             return;
         }
@@ -131,8 +171,8 @@ impl RoomManagerDialog {
         });
     }
 
-    fn add_saved_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let room = self.room_list_entry.read(cx).value().trim().to_string();
+    fn save_room_from_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let room = self.room_name.read(cx).value().trim().to_string();
         if room.is_empty() {
             return;
         }
@@ -144,15 +184,12 @@ impl RoomManagerDialog {
                 ),
                 cx,
             );
-            self.room_list_entry.update(cx, |input, cx| {
-                input.set_value("", window, cx);
-            });
             return;
         }
         self.update_config(cx, |config| {
             config.user.room_list.push(room);
         });
-        self.room_list_entry.update(cx, |input, cx| {
+        self.room_name.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
     }
@@ -169,80 +206,243 @@ impl RoomManagerDialog {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         div()
-            .text_sm()
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(cx.theme().foreground)
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(cx.theme().muted_foreground)
             .child(label)
     }
 
-    fn render_server_rooms(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Saved and server rooms merged into one scrollable card; every row
+    /// switches on click, and saved rows reveal their management buttons only
+    /// on hover so long lists stay quiet.
+    fn render_room_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.read(cx);
-        let rooms = store.rooms.clone();
+        let saved = store.config.user.room_list.clone();
+        let default_room = store.config.user.default_room.clone();
         let persistent = store.server_room_features.persistent_rooms;
         let current = live_room(store);
+        let hairline = cx.theme().border.opacity(0.55);
+
+        let mut rows: Vec<(String, bool)> = saved.iter().map(|room| (room.clone(), true)).collect();
+        for room in store.rooms.iter() {
+            if !saved.contains(room) {
+                rows.push((room.clone(), false));
+            }
+        }
+        let total = rows.len();
 
         v_flex()
             .gap_2()
             .child(
                 h_flex()
                     .gap_2()
-                    .child(self.render_section_label(t!("rooms.server_rooms").into(), cx))
+                    .child(self.render_section_label(t!("rooms.room_list").into(), cx))
                     .when(persistent, |this| {
-                        this.child(
-                            div()
-                                .text_xs()
-                                .px_2()
-                                .rounded(cx.theme().radius)
-                                .border_1()
-                                .border_color(cx.theme().info)
-                                .bg(cx.theme().info.opacity(0.15))
-                                .child(t!("rooms.persistent")),
-                        )
-                    }),
+                        this.child(soft_badge(t!("rooms.persistent"), cx.theme().info, cx))
+                    })
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{total} · {}", t!("rooms.click_to_switch"))),
+                    ),
             )
-            .when(rooms.is_empty(), |this| {
+            .when(rows.is_empty(), |this| {
                 this.child(
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground)
-                        .child(t!("rooms.no_server_rooms")),
+                        .child(t!("rooms.empty_list")),
                 )
             })
-            .children(rooms.iter().map(|room| {
-                let is_current = current.as_deref() == Some(room.as_str());
-                h_flex()
-                    .justify_between()
-                    .gap_3()
-                    .px_3()
-                    .py_2()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().muted)
-                    .child(
-                        div()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .text_sm()
-                            .child(room.clone()),
-                    )
-                    .child(
-                        Button::new((ElementId::from("join-room"), room.clone()))
-                            .secondary()
-                            .xsmall()
-                            .label(if is_current {
-                                t!("rooms.current")
-                            } else {
-                                t!("rooms.join")
-                            })
-                            .disabled(is_current)
-                            .on_click(cx.listener({
-                                let room = room.clone();
-                                move |this, _, _, cx| this.connect_to_room(Some(room.clone()), cx)
-                            })),
-                    )
-                    .into_any_element()
-            }))
+            .when(!rows.is_empty(), |this| {
+                // max_h lives on the card, never on the scrollable content:
+                // clamping the content itself would collapse the scroll range
+                // to zero. The flex_1 + overflow_hidden layer hands the
+                // clamped height down, like gpui-component's own
+                // MaxHeightParentTest.
+                this.child(
+                    v_flex()
+                        .max_h(px(280.))
+                        .rounded(cx.theme().radius_lg)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().popover)
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .overflow_hidden()
+                                .rounded(cx.theme().radius_lg)
+                                .child(
+                                    div()
+                                        .id("room-list")
+                                        .v_flex()
+                                        .size_full()
+                                        .overflow_y_scrollbar()
+                                        .children(rows.iter().enumerate().map(
+                                            |(ix, (room, is_saved))| {
+                                                let is_current =
+                                                    current.as_deref() == Some(room.as_str());
+                                                let is_default = *is_saved && *room == default_room;
+                                                let hovered = self.hovered_room.as_deref()
+                                                    == Some(room.as_str());
+                                                let (display, managed) = display_room_name(room);
+                                                h_flex()
+                                                    .id((ElementId::from("room-row"), room.clone()))
+                                                    .w_full()
+                                                    .gap_2()
+                                                    .pl_3()
+                                                    .pr_2()
+                                                    .when(ix > 0, |this| {
+                                                        this.border_t_1().border_color(hairline)
+                                                    })
+                                                    .when(hovered && !is_current, |this| {
+                                                        this.bg(cx.theme().accent)
+                                                    })
+                                                    .on_hover(cx.listener({
+                                                        let room = room.clone();
+                                                        move |this, hovered: &bool, _, cx| {
+                                                            this.hovered_room = if *hovered {
+                                                                Some(room.clone())
+                                                            } else if this.hovered_room.as_deref()
+                                                                == Some(room.as_str())
+                                                            {
+                                                                None
+                                                            } else {
+                                                                return;
+                                                            };
+                                                            cx.notify();
+                                                        }
+                                                    }))
+                                                    .child(
+                                                        h_flex()
+                                                            .id((
+                                                                ElementId::from("room-join"),
+                                                                room.clone(),
+                                                            ))
+                                                            .gap_2()
+                                                            .min_w_0()
+                                                            .flex_1()
+                                                            .py_2()
+                                                            .when(!is_current, |this| {
+                                                                this.cursor_pointer().on_click(
+                                                                    cx.listener({
+                                                                        let room = room.clone();
+                                                                        move |this, _, window, cx| {
+                                                                            this.connect_to_room(
+                                                                                Some(room.clone()),
+                                                                                cx,
+                                                                            );
+                                                                            window
+                                                                                .close_dialog(cx);
+                                                                        }
+                                                                    }),
+                                                                )
+                                                            })
+                                                            .child(
+                                                                div()
+                                                                    .min_w_0()
+                                                                    .overflow_hidden()
+                                                                    .whitespace_nowrap()
+                                                                    .text_ellipsis()
+                                                                    .text_sm()
+                                                                    .child(display.to_string()),
+                                                            )
+                                                            .when(managed, |this| {
+                                                                this.child(managed_badge(cx))
+                                                            })
+                                                            .when(is_current, |this| {
+                                                                this.child(soft_badge(
+                                                                    t!("rooms.current"),
+                                                                    cx.theme().success,
+                                                                    cx,
+                                                                ))
+                                                            })
+                                                            .when(is_default, |this| {
+                                                                this.child(soft_badge(
+                                                                    t!("rooms.default"),
+                                                                    cx.theme().info,
+                                                                    cx,
+                                                                ))
+                                                            }),
+                                                    )
+                                                    .when(hovered && *is_saved, |this| {
+                                                        this.child(
+                                                            h_flex()
+                                                                .gap_1()
+                                                                .flex_shrink_0()
+                                                                .when(!is_default, |this| {
+                                                                    this.child(
+                                                                        Button::new((
+                                                                            ElementId::from(
+                                                                                "make-default",
+                                                                            ),
+                                                                            room.clone(),
+                                                                        ))
+                                                                        .ghost()
+                                                                        .xsmall()
+                                                                        .label(t!(
+                                                                            "rooms.make_default"
+                                                                        ))
+                                                                        .on_click(cx.listener({
+                                                                            let room = room.clone();
+                                                                            move |this, _, _, cx| {
+                                                                                this.update_config(
+                                                                                    cx,
+                                                                                    |config| {
+                                                                                        config
+                                                                                            .user
+                                                                                            .default_room =
+                                                                                            room
+                                                                                                .clone(
+                                                                                                );
+                                                                                    },
+                                                                                );
+                                                                            }
+                                                                        })),
+                                                                    )
+                                                                })
+                                                                .child(
+                                                                    Button::new((
+                                                                        ElementId::from(
+                                                                            "remove-room",
+                                                                        ),
+                                                                        room.clone(),
+                                                                    ))
+                                                                    .ghost()
+                                                                    .xsmall()
+                                                                    .label(t!("common.remove"))
+                                                                    .text_color(cx.theme().danger)
+                                                                    .on_click(cx.listener({
+                                                                        let room = room.clone();
+                                                                        move |this, _, _, cx| {
+                                                                            this.update_config(
+                                                                                cx,
+                                                                                |config| {
+                                                                                    config
+                                                                                        .user
+                                                                                        .room_list
+                                                                                        .retain(
+                                                                                            |entry| {
+                                                                                                entry
+                                                                                                    != &room
+                                                                                            },
+                                                                                        );
+                                                                                },
+                                                                            );
+                                                                        }
+                                                                    })),
+                                                                ),
+                                                        )
+                                                    })
+                                                    .into_any_element()
+                                            },
+                                        )),
+                                ),
+                        ),
+                )
+            })
     }
 
     fn render_managed_rooms(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -297,113 +497,6 @@ impl RoomManagerDialog {
                     ),
             )
     }
-
-    fn render_saved_rooms(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let store = self.store.read(cx);
-        let room_list = store.config.user.room_list.clone();
-        let default_room = store.config.user.default_room.clone();
-
-        v_flex()
-            .gap_2()
-            .child(self.render_section_label(t!("rooms.saved_rooms").into(), cx))
-            .child(
-                h_flex()
-                    .gap_2()
-                    .child(div().flex_1().child(Input::new(&self.room_list_entry)))
-                    .child(
-                        Button::new("add-saved-room")
-                            .primary()
-                            .label(t!("common.add"))
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.add_saved_room(window, cx)),
-                            ),
-                    ),
-            )
-            .when(room_list.is_empty(), |this| {
-                this.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(t!("rooms.no_saved")),
-                )
-            })
-            .children(room_list.iter().map(|room| {
-                let is_default = *room == default_room;
-                h_flex()
-                    .justify_between()
-                    .px_3()
-                    .py_2()
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().muted)
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .overflow_hidden()
-                                    .whitespace_nowrap()
-                                    .text_ellipsis()
-                                    .text_sm()
-                                    .child(room.clone()),
-                            )
-                            .when(is_default, |this| {
-                                this.child(
-                                    div()
-                                        .flex_shrink_0()
-                                        .text_xs()
-                                        .px_2()
-                                        .rounded(cx.theme().radius)
-                                        .border_1()
-                                        .border_color(cx.theme().info)
-                                        .bg(cx.theme().info.opacity(0.15))
-                                        .child(t!("rooms.default")),
-                                )
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .flex_shrink_0()
-                            .when(!is_default, |this| {
-                                this.child(
-                                    Button::new((ElementId::from("make-default"), room.clone()))
-                                        .ghost()
-                                        .xsmall()
-                                        .label(t!("rooms.make_default"))
-                                        .on_click(cx.listener({
-                                            let room = room.clone();
-                                            move |this, _, _, cx| {
-                                                this.update_config(cx, |config| {
-                                                    config.user.default_room = room.clone();
-                                                });
-                                            }
-                                        })),
-                                )
-                            })
-                            .child(
-                                Button::new((ElementId::from("remove-room"), room.clone()))
-                                    .ghost()
-                                    .xsmall()
-                                    .label(t!("common.remove"))
-                                    .text_color(cx.theme().danger)
-                                    .on_click(cx.listener({
-                                        let room = room.clone();
-                                        move |this, _, _, cx| {
-                                            this.update_config(cx, |config| {
-                                                config
-                                                    .user
-                                                    .room_list
-                                                    .retain(|entry| entry != &room);
-                                            });
-                                        }
-                                    })),
-                            ),
-                    )
-                    .into_any_element()
-            }))
-    }
 }
 
 impl Render for RoomManagerDialog {
@@ -411,40 +504,68 @@ impl Render for RoomManagerDialog {
         let store = self.store.read(cx);
         let connected = store.is_connected();
         let managed_rooms = store.server_room_features.managed_rooms;
+        let on_switch_tab = self.tab == RoomManagerTab::Switch;
 
         v_flex()
             .gap_4()
             .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(t!("rooms.description")),
+                TabBar::new("room-manager-tabs")
+                    .segmented()
+                    .small()
+                    .selected_index(self.tab.index())
+                    .children([
+                        Tab::new().label(t!("rooms.tab_switch")),
+                        Tab::new().label(t!("rooms.tab_manage")),
+                    ])
+                    .on_click(cx.listener(|this, ix, _, cx| {
+                        this.tab = RoomManagerTab::from_index(*ix);
+                        cx.notify();
+                    })),
             )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(self.render_section_label(t!("rooms.connect_title").into(), cx))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(div().flex_1().child(Input::new(&self.room_name)))
-                            .child(
-                                Button::new("connect-to-room")
-                                    .primary()
-                                    .label(t!("common.connect"))
-                                    .on_click(
-                                        cx.listener(|this, _, _, cx| {
+            .when(on_switch_tab, |this| {
+                this.child(
+                    v_flex()
+                        .gap_2()
+                        .child(self.render_section_label(t!("rooms.connect_title").into(), cx))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(div().flex_1().child(Input::new(&self.room_name)))
+                                .child(
+                                    Button::new("connect-to-room")
+                                        .primary()
+                                        .label(t!("rooms.join"))
+                                        .on_click(cx.listener(|this, _, _, cx| {
                                             this.connect_to_room(None, cx)
-                                        }),
-                                    ),
-                            ),
-                    ),
-            )
-            .when(connected, |this| this.child(self.render_server_rooms(cx)))
-            .when(connected && managed_rooms, |this| {
-                this.child(self.render_managed_rooms(cx))
+                                        })),
+                                )
+                                .child(
+                                    Button::new("save-room")
+                                        .secondary()
+                                        .label(t!("rooms.save"))
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.save_room_from_input(window, cx)
+                                        })),
+                                ),
+                        )
+                        .when_some(self.applicable_seed(cx), |this, raw| {
+                            this.child(managed_seed_hint(&raw, cx))
+                        }),
+                )
+                .child(self.render_room_list(cx))
             })
-            .child(self.render_saved_rooms(cx))
+            .when(!on_switch_tab, |this| {
+                if connected && managed_rooms {
+                    this.child(self.render_managed_rooms(cx))
+                } else {
+                    this.child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t!("rooms.manage_unavailable")),
+                    )
+                }
+            })
     }
 }
 
@@ -459,22 +580,84 @@ fn live_room(store: &AppStore) -> Option<String> {
         .filter(|room| !room.is_empty())
 }
 
-/// `+name:xxxxxxxxxxxx` controlled-room form back to `name` for the create
-/// input, mirroring the web client's prefill.
-fn strip_managed_room_name(room: &str) -> &str {
+/// Display form of a room name: `+name:xxxxxxxxxxxx` controlled rooms show as
+/// `name` plus a managed badge (the bool), plain rooms show as-is.
+pub(crate) fn display_room_name(room: &str) -> (&str, bool) {
     let Some(rest) = room.strip_prefix('+') else {
-        return room;
+        return (room, false);
     };
     let Some((name, suffix)) = rest.rsplit_once(':') else {
-        return room;
+        return (room, false);
     };
     if suffix.len() == 12
         && suffix
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
-        name
+        (name, true)
     } else {
-        room
+        (room, false)
     }
+}
+
+/// `+name:xxxxxxxxxxxx` controlled-room form back to `name` for the create
+/// input, mirroring the web client's prefill.
+fn strip_managed_room_name(room: &str) -> &str {
+    display_room_name(room).0
+}
+
+/// Soft pill badge in a semantic color — no border, tinted background.
+pub(crate) fn soft_badge(
+    label: impl Into<gpui_kit::SharedString>,
+    color: gpui_kit::Hsla,
+    cx: &gpui_kit::App,
+) -> impl IntoElement {
+    div()
+        .flex_shrink_0()
+        .text_xs()
+        .px_2()
+        .rounded(cx.theme().radius)
+        .text_color(color)
+        .bg(color.opacity(0.12))
+        .child(label.into())
+}
+
+/// Small tag marking a stripped controlled-room name, colored like the
+/// controller crown in the user list.
+pub(crate) fn managed_badge(cx: &gpui_kit::App) -> impl IntoElement {
+    soft_badge(t!("rooms.managed"), cx.theme().warning, cx)
+}
+
+/// Ghost icon button copying the raw controlled-room code for sharing with
+/// operators; the code itself is never shown in the UI.
+pub(crate) fn copy_room_code_button(id: impl Into<ElementId>, raw: String) -> Button {
+    Button::new(id)
+        .ghost()
+        .xsmall()
+        .icon(IconName::Copy)
+        .tooltip(t!("rooms.copy_code"))
+        .on_click(move |_, window, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(raw.clone()));
+            window.push_notification((NotificationType::Info, t!("rooms.copied").to_string()), cx);
+        })
+}
+
+/// Shown under a room input whose stripped display maps back to a managed
+/// seed: makes the operator join visible and offers the code for copying.
+pub(crate) fn managed_seed_hint(raw: &str, cx: &App) -> impl IntoElement {
+    h_flex()
+        .gap_2()
+        .child(managed_badge(cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(t!("rooms.join_as_operator")),
+        )
+        .child(copy_room_code_button(
+            (ElementId::from("copy-seed-code"), raw.to_string()),
+            raw.to_string(),
+        ))
 }
