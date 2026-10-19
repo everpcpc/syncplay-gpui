@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::chat::ChatPanel;
 use crate::connection::ConnectPanel;
 use crate::playlist::PlaylistPanel;
@@ -18,6 +20,7 @@ use gpui_kit::{
     Styled as _, Subscription, Task, Window,
 };
 use rust_i18n::t;
+use syncplay_core::player::detection::player_path_resolves;
 
 pub struct RootView {
     store: Entity<AppStore>,
@@ -55,13 +58,45 @@ impl RootView {
             _subscriptions: subscriptions,
         };
         view.watch_window_size(window, cx);
+        view.watch_player_rescan(window, cx);
         // Defer so the window's Root (dialogs, notifications) exists by the
         // time the startup logic may auto-connect.
         cx.defer_in(window, |this, window, cx| this.startup(window, cx));
         view
     }
 
+    /// Re-scan periodically while no usable player is configured, so
+    /// installing a player after launch is picked up without a restart.
+    fn watch_player_rescan(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor()
+                .timer(Duration::from_secs(30))
+                .await;
+            let Ok(missing) = this.update(cx, |this, cx| {
+                let store = this.store.read(cx);
+                if store.is_connected()
+                    || store.players_refreshing
+                    || store.player_detection_settled
+                {
+                    return false;
+                }
+                let path = store.config.player.player_path.trim();
+                path.is_empty() || path == "custom" || !player_path_resolves(path)
+            }) else {
+                break;
+            };
+            if missing {
+                this.update(cx, |this, cx| {
+                    this.store.update(cx, |store, cx| store.refresh_players(cx));
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
     fn startup(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.store.update(cx, |store, cx| store.refresh_players(cx));
         let config = self.store.read(cx).config.clone();
         if config.user.auto_connect
             && !config.user.username.trim().is_empty()

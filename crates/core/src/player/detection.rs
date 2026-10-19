@@ -13,6 +13,21 @@ pub struct DetectedPlayer {
     pub version: Option<String>,
 }
 
+/// Whether a configured player path resolves to a runnable executable:
+/// a bare name is looked up on PATH, an explicit path must be runnable
+/// as-is (the launcher uses it literally).
+pub fn player_path_resolves(path: &str) -> bool {
+    let path = path.trim();
+    if path.is_empty() {
+        return false;
+    }
+    let path = Path::new(path);
+    if path.components().count() > 1 {
+        return is_runnable_file(path);
+    }
+    !expand_player_path(path, &[]).is_empty()
+}
+
 /// Detect available media players on the system
 pub fn detect_players() -> Vec<DetectedPlayer> {
     let mut players = Vec::new();
@@ -479,6 +494,36 @@ mod tests {
         let expanded = expand_player_path(temp_dir.path(), &["vlc.exe"]);
 
         assert_eq!(expanded, vec![vlc_path]);
+    }
+
+    #[test]
+    fn player_path_resolution_accepts_runnable_absolute_path() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let player_path = temp_dir.path().join("mpv");
+        File::create(&player_path).unwrap();
+        mark_runnable(&player_path);
+
+        assert!(player_path_resolves(&player_path.to_string_lossy()));
+    }
+
+    #[test]
+    fn player_path_resolution_rejects_unusable_values() {
+        assert!(!player_path_resolves(""));
+        assert!(!player_path_resolves("   "));
+        assert!(!player_path_resolves("/definitely/not/a/player/binary"));
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let not_executable = temp_dir.path().join("no-such-player-xyz");
+        File::create(&not_executable).unwrap();
+        #[cfg(unix)]
+        assert!(!player_path_resolves(&not_executable.to_string_lossy()));
+    }
+
+    #[test]
+    fn explicit_path_does_not_fall_back_to_path_lookup() {
+        // A dead explicit path must not resolve just because a binary with
+        // the same name exists on PATH; the launcher uses it literally.
+        assert!(!player_path_resolves("/definitely/not/mpv"));
     }
 
     #[test]
