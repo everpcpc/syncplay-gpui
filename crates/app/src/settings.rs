@@ -4,6 +4,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::form::{field, v_form};
 use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
+use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::tab::{Tab, TabBar};
@@ -12,8 +13,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::{
     div, prelude::FluentBuilder as _, px, AnyElement, App, AppContext as _, Context, Entity,
-    FontWeight, Hsla, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
-    Subscription, Window,
+    FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Subscription, Window,
 };
 use rust_i18n::t;
 use syncplay_core::config::settings::PlayerConfig;
@@ -21,7 +22,7 @@ use syncplay_core::config::settings::{
     ChatInputPosition, ChatOutputMode, PrivacyMode, UnpauseAction,
 };
 use syncplay_core::config::UserPreferences;
-use syncplay_core::player::detection::DetectedPlayer;
+use syncplay_core::player::detection::{resolve_player_executable, DetectedPlayer};
 
 use crate::i18n;
 use crate::store::{AppStore, StoreEvent};
@@ -481,7 +482,10 @@ impl SettingsDialog {
             &store,
             window,
             |this, _, event: &StoreEvent, window, cx| {
-                if matches!(event, StoreEvent::PlayersDetected) {
+                if matches!(
+                    event,
+                    StoreEvent::PlayersDetected | StoreEvent::ConfigUpdated
+                ) {
                     this.sync_player_select(window, cx);
                 }
             },
@@ -999,6 +1003,32 @@ impl SettingsDialog {
             })
     }
 
+    fn on_player_executable_drop(
+        &mut self,
+        paths: &gpui_kit::ExternalPaths,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = paths.paths().first() else {
+            return;
+        };
+        let Some(executable) = resolve_player_executable(path) else {
+            window.push_notification(
+                (
+                    NotificationType::Warning,
+                    t!("settings.player_drop_invalid").to_string(),
+                ),
+                cx,
+            );
+            return;
+        };
+        let value = executable.to_string_lossy().to_string();
+        self.player_path.update(cx, |input, cx| {
+            input.set_value(value.clone(), window, cx);
+        });
+        self.update_player_config(cx, |player| player.player_path = value);
+    }
+
     fn render_player_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let (players, players_refreshing, players_checked_at, player_path) = {
             let store = self.store.read(cx);
@@ -1009,7 +1039,6 @@ impl SettingsDialog {
                 store.config.player.player_path.clone(),
             )
         };
-
         let checked_label = players_checked_at.and_then(|at| {
             chrono::DateTime::from_timestamp_millis(at)
                 .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
@@ -1081,12 +1110,17 @@ impl SettingsDialog {
                     .description(t!("settings.player_path_desc").to_string()),
             );
         }
-        form.child(
+        let form = form.child(
             field()
                 .label(t!("settings.player_args_label").to_string())
                 .child(Input::new(&self.player_args))
                 .description(t!("settings.player_args_desc").to_string()),
-        )
+        );
+        div()
+            .id("player-settings-drop")
+            .size_full()
+            .on_drop(cx.listener(Self::on_player_executable_drop))
+            .child(form)
     }
 
     fn render_sync_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {

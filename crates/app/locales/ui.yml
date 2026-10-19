@@ -830,11 +830,17 @@ settings:
     ja: プレイヤーのパス（手動）
     fr: "Chemin du lecteur (manuel)"
   player_path_desc:
-    en: Full path to media player executable
-    zh-CN: 媒体播放器可执行文件的完整路径
-    zh-TW: 媒體播放器執行檔的完整路徑
-    ja: メディアプレイヤー実行ファイルのフルパス
-    fr: "Chemin complet de l’exécutable du lecteur multimédia"
+    en: Full path to media player executable — you can also drop the player onto this page
+    zh-CN: 媒体播放器可执行文件的完整路径——也可以直接把播放器拖进本页
+    zh-TW: 媒體播放器執行檔的完整路徑——也可以直接把播放器拖進本頁
+    ja: メディアプレイヤー実行ファイルのフルパス——このページにプレイヤーをドラッグ&ドロップすることもできます
+    fr: "Chemin complet de l’exécutable du lecteur multimédia — vous pouvez aussi le déposer sur cette page"
+  player_drop_invalid:
+    en: Dropped file is not a runnable player executable
+    zh-CN: 拖入的文件不是可运行的播放器程序
+    zh-TW: 拖入的檔案不是可執行的播放器程式
+    ja: ドロップされたファイルは実行可能なプレイヤーではありません
+    fr: "Le fichier déposé n’est pas un lecteur exécutable"
   player_args_label:
     en: Player Arguments
     zh-CN: 播放器参数

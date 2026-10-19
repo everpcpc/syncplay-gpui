@@ -66,6 +66,7 @@ pub enum UpdateState {
 pub enum StoreEvent {
     ConnectFinished,
     PlayersDetected,
+    ConfigUpdated,
 }
 
 pub struct ConnectParams {
@@ -372,6 +373,7 @@ impl AppStore {
                         self.schedule_availability_check(true, &items);
                     }
                     self.config = config;
+                    cx.emit(StoreEvent::ConfigUpdated);
                 }
             }
             "media-index-updated" => {

@@ -28,6 +28,34 @@ pub fn player_path_resolves(path: &str) -> bool {
     !expand_player_path(path, &[]).is_empty()
 }
 
+/// Resolve a user-supplied path to a runnable player executable,
+/// unwrapping .app bundles.
+pub fn resolve_player_executable(path: &Path) -> Option<PathBuf> {
+    if is_runnable_file(path) && has_executable_extension(path) {
+        return Some(path.to_path_buf());
+    }
+    if path.extension().and_then(|ext| ext.to_str()) != Some("app") || !path.is_dir() {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    let binary = path.join("Contents").join("MacOS").join(stem);
+    let candidate = PathBuf::from(normalize_iina_player_path(&binary.to_string_lossy()));
+    is_runnable_file(&candidate).then_some(candidate)
+}
+
+// Windows has no executable bit; only .exe is spawnable there.
+#[cfg(target_os = "windows")]
+fn has_executable_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn has_executable_extension(_: &Path) -> bool {
+    true
+}
+
 /// Detect available media players on the system
 pub fn detect_players() -> Vec<DetectedPlayer> {
     let mut players = Vec::new();
@@ -556,5 +584,59 @@ mod tests {
             "/Applications/IINA.app/Contents/MacOS/iina-cli"
         );
         assert_eq!(normalize_iina_player_path("IINA"), "IINA");
+    }
+
+    #[test]
+    fn dropped_plain_executable_is_used_directly() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let player_path = temp_dir.path().join("player.exe");
+        File::create(&player_path).unwrap();
+        mark_runnable(&player_path);
+
+        assert_eq!(resolve_player_executable(&player_path), Some(player_path));
+        assert!(resolve_player_executable(&temp_dir.path().join("missing")).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropped_app_bundle_resolves_to_inner_binary() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let binary = temp_dir
+            .path()
+            .join("Dummy.app")
+            .join("Contents")
+            .join("MacOS")
+            .join("Dummy");
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        File::create(&binary).unwrap();
+        mark_runnable(&binary);
+
+        assert_eq!(
+            resolve_player_executable(&temp_dir.path().join("Dummy.app")),
+            Some(binary)
+        );
+        assert!(resolve_player_executable(&temp_dir.path().join("Missing.app")).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropped_iina_bundle_prefers_the_cli_binary() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let macos_dir = temp_dir
+            .path()
+            .join("IINA.app")
+            .join("Contents")
+            .join("MacOS");
+        std::fs::create_dir_all(&macos_dir).unwrap();
+        for name in ["IINA", "iina-cli"] {
+            let binary = macos_dir.join(name);
+            File::create(&binary).unwrap();
+            mark_runnable(&binary);
+        }
+
+        assert_eq!(
+            resolve_player_executable(&temp_dir.path().join("IINA.app")),
+            Some(macos_dir.join("iina-cli"))
+        );
     }
 }
