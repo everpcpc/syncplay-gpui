@@ -387,7 +387,9 @@ mod tests {
         assert_eq!(bytes.len(), 10);
         assert!(bytes[0].is_ascii_uppercase() && bytes[1].is_ascii_uppercase());
         assert_eq!(bytes[2], b'-');
+        assert!(bytes[3..6].iter().all(u8::is_ascii_digit));
         assert_eq!(bytes[6], b'-');
+        assert!(bytes[7..10].iter().all(u8::is_ascii_digit));
 
         server.close();
     }
