@@ -1,7 +1,9 @@
 use std::time::Duration;
 
-use gpui_kit::component::button::Button;
+use gpui_kit::assets::IconName;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::component::form::{field, v_form};
 use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
 use gpui_kit::component::notification::NotificationType;
@@ -74,22 +76,18 @@ const UPDATE_CHECK_OPTIONS: [(&str, Option<bool>); 3] = [
 pub(crate) enum SettingsTab {
     Player = 0,
     Sync,
-    Readiness,
-    Privacy,
     Chat,
-    Osd,
-    Misc,
+    Appearance,
+    General,
 }
 
 impl SettingsTab {
     fn from_index(ix: usize) -> Self {
         match ix {
             1 => Self::Sync,
-            2 => Self::Readiness,
-            3 => Self::Privacy,
-            4 => Self::Chat,
-            5 => Self::Osd,
-            6 => Self::Misc,
+            2 => Self::Chat,
+            3 => Self::Appearance,
+            4 => Self::General,
             _ => Self::Player,
         }
     }
@@ -106,6 +104,11 @@ enum SaveStatus {
 pub struct SettingsDialog {
     store: Entity<AppStore>,
     active_tab: SettingsTab,
+    thresholds_expanded: bool,
+    chat_advanced_expanded: bool,
+    input_style_expanded: bool,
+    output_style_expanded: bool,
+    margins_expanded: bool,
     // Edits accumulate in this draft; the store stays untouched until the
     // debounce fires, so a store reflow never rewrites a half-typed value.
     draft_user: UserPreferences,
@@ -155,7 +158,7 @@ pub struct SettingsDialog {
     // OSD
     osd_duration: Entity<InputState>,
 
-    // Misc
+    // General
     check_for_updates: Entity<SelectState<Vec<String>>>,
     language: Entity<SelectState<Vec<String>>>,
     // Locale the select labels were last built with; a mismatch in render
@@ -494,6 +497,11 @@ impl SettingsDialog {
         let mut this = Self {
             store,
             active_tab: SettingsTab::Sync,
+            thresholds_expanded: false,
+            chat_advanced_expanded: false,
+            input_style_expanded: false,
+            output_style_expanded: false,
+            margins_expanded: false,
             draft_user: user,
             dirty: false,
             save_status: SaveStatus::Idle,
@@ -644,6 +652,39 @@ impl SettingsDialog {
             .on_click(cx.listener(move |this, checked, window, cx| {
                 this.edit_user_draft(window, cx, |user| apply(user, *checked));
             }))
+    }
+
+    fn section_title(label: SharedString) -> impl IntoElement {
+        div().text_sm().font_weight(FontWeight::MEDIUM).child(label)
+    }
+
+    fn collapsible_section(
+        &self,
+        id: &'static str,
+        title: SharedString,
+        expanded: bool,
+        toggle: fn(&mut Self, bool),
+        content: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> Collapsible {
+        Collapsible::new()
+            .open(expanded)
+            .child(
+                Button::new(id)
+                    .ghost()
+                    .xsmall()
+                    .icon(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .label(title)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        toggle(this, !expanded);
+                        cx.notify();
+                    })),
+            )
+            .content(content)
     }
 
     fn update_player_config(&self, cx: &mut Context<Self>, edit: impl FnOnce(&mut PlayerConfig)) {
@@ -1127,34 +1168,6 @@ impl SettingsDialog {
         v_flex()
             .gap_4()
             .child(
-                v_form()
-                    .child(
-                        field()
-                            .label(t!("settings.seek_rewind").to_string())
-                            .child(NumberInput::new(&self.seek_threshold_rewind)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.seek_fastforward").to_string())
-                            .child(NumberInput::new(&self.seek_threshold_fastforward)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.slowdown_threshold").to_string())
-                            .child(NumberInput::new(&self.slowdown_threshold)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.slowdown_reset").to_string())
-                            .child(NumberInput::new(&self.slowdown_reset_threshold)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.slowdown_rate").to_string())
-                            .child(NumberInput::new(&self.slowdown_rate)),
-                    ),
-            )
-            .child(
                 v_form().child(
                     field().label_indent(false).child(
                         v_flex()
@@ -1190,11 +1203,52 @@ impl SettingsDialog {
                     ),
                 ),
             )
-    }
-
-    fn render_readiness_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap_4()
+            .child(
+                self.collapsible_section(
+                    "sync-thresholds",
+                    t!("settings.section_thresholds").into(),
+                    self.thresholds_expanded,
+                    |this, expanded| this.thresholds_expanded = expanded,
+                    v_flex()
+                        .gap_4()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(t!("settings.thresholds_desc")),
+                        )
+                        .child(
+                            v_form()
+                                .child(
+                                    field()
+                                        .label(t!("settings.seek_rewind").to_string())
+                                        .child(NumberInput::new(&self.seek_threshold_rewind)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.seek_fastforward").to_string())
+                                        .child(NumberInput::new(&self.seek_threshold_fastforward)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.slowdown_threshold").to_string())
+                                        .child(NumberInput::new(&self.slowdown_threshold)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.slowdown_reset").to_string())
+                                        .child(NumberInput::new(&self.slowdown_reset_threshold)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.slowdown_rate").to_string())
+                                        .child(NumberInput::new(&self.slowdown_rate)),
+                                ),
+                        ),
+                    cx,
+                ),
+            )
+            .child(Self::section_title(t!("settings.section_playback").into()))
             .child(
                 v_form().child(
                     field().label_indent(false).child(
@@ -1225,26 +1279,13 @@ impl SettingsDialog {
                 ),
             )
             .child(
-                v_form().child(
-                    field().label_indent(false).child(
-                        v_flex()
-                            .gap_2()
-                            .child(self.checkbox(
-                                "autoplay_enabled",
-                                t!("settings.autoplay_enabled").into(),
-                                self.draft_user.autoplay_enabled,
-                                |user, value| user.autoplay_enabled = value,
-                                cx,
-                            ))
-                            .child(self.checkbox(
-                                "autoplay_require_same_filenames",
-                                t!("settings.autoplay_same_names").into(),
-                                self.draft_user.autoplay_require_same_filenames,
-                                |user, value| user.autoplay_require_same_filenames = value,
-                                cx,
-                            )),
-                    ),
-                ),
+                v_form().child(field().label_indent(false).child(self.checkbox(
+                    "autoplay_enabled",
+                    t!("settings.autoplay_enabled").into(),
+                    self.draft_user.autoplay_enabled,
+                    |user, value| user.autoplay_enabled = value,
+                    cx,
+                ))),
             )
             .child(
                 v_form().child(
@@ -1254,19 +1295,28 @@ impl SettingsDialog {
                         .description(t!("settings.autoplay_min_desc").to_string()),
                 ),
             )
-    }
-
-    fn render_privacy_tab(&mut self, _cx: &mut Context<Self>) -> impl IntoElement {
-        v_form()
             .child(
-                field()
-                    .label(t!("settings.filename_privacy").to_string())
-                    .child(Select::new(&self.filename_privacy_mode).w_full()),
+                v_form().child(field().label_indent(false).child(self.checkbox(
+                    "autoplay_require_same_filenames",
+                    t!("settings.autoplay_same_names").into(),
+                    self.draft_user.autoplay_require_same_filenames,
+                    |user, value| user.autoplay_require_same_filenames = value,
+                    cx,
+                ))),
             )
+            .child(Self::section_title(t!("settings.tab_privacy").into()))
             .child(
-                field()
-                    .label(t!("settings.filesize_privacy").to_string())
-                    .child(Select::new(&self.filesize_privacy_mode).w_full()),
+                v_form()
+                    .child(
+                        field()
+                            .label(t!("settings.filename_privacy").to_string())
+                            .child(Select::new(&self.filename_privacy_mode).w_full()),
+                    )
+                    .child(
+                        field()
+                            .label(t!("settings.filesize_privacy").to_string())
+                            .child(Select::new(&self.filesize_privacy_mode).w_full()),
+                    ),
             )
     }
 
@@ -1303,39 +1353,6 @@ impl SettingsDialog {
                 ),
             )
             .child(
-                v_form()
-                    .columns(2)
-                    .child(
-                        field()
-                            .label(t!("settings.input_font_family").to_string())
-                            .child(Input::new(&self.chat_input_font_family)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.input_font_size").to_string())
-                            .child(NumberInput::new(&self.chat_input_relative_font_size)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.input_font_weight").to_string())
-                            .child(NumberInput::new(&self.chat_input_font_weight)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.input_font_color").to_string())
-                            .child(Input::new(&self.chat_input_font_color)),
-                    ),
-            )
-            .child(
-                v_form().child(field().label_indent(false).child(self.checkbox(
-                    "chat_input_font_underline",
-                    t!("settings.underline_input").into(),
-                    self.draft_user.chat_input_font_underline,
-                    |user, value| user.chat_input_font_underline = value,
-                    cx,
-                ))),
-            )
-            .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "chat_output_enabled",
                     t!("settings.chat_output_enabled").into(),
@@ -1352,97 +1369,66 @@ impl SettingsDialog {
                 ),
             )
             .child(
-                v_form()
-                    .columns(2)
-                    .child(
-                        field()
-                            .label(t!("settings.output_font_family").to_string())
-                            .child(Input::new(&self.chat_output_font_family)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.output_font_size").to_string())
-                            .child(NumberInput::new(&self.chat_output_relative_font_size)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.output_font_weight").to_string())
-                            .child(NumberInput::new(&self.chat_output_font_weight)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.chat_max_lines").to_string())
-                            .child(NumberInput::new(&self.chat_max_lines)),
-                    ),
-            )
-            .child(
-                v_form().child(field().label_indent(false).child(self.checkbox(
-                    "chat_output_font_underline",
-                    t!("settings.underline_output").into(),
-                    self.draft_user.chat_output_font_underline,
-                    |user, value| user.chat_output_font_underline = value,
-                    cx,
-                ))),
-            )
-            .child(
-                v_form()
-                    .columns(3)
-                    .child(
-                        field()
-                            .label(t!("settings.top_margin").to_string())
-                            .child(NumberInput::new(&self.chat_top_margin)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.left_margin").to_string())
-                            .child(NumberInput::new(&self.chat_left_margin)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.bottom_margin").to_string())
-                            .child(NumberInput::new(&self.chat_bottom_margin)),
-                    ),
-            )
-            .child(
-                v_form().child(field().label_indent(false).child(self.checkbox(
-                    "chat_move_osd",
-                    t!("settings.move_osd").into(),
-                    self.draft_user.chat_move_osd,
-                    |user, value| user.chat_move_osd = value,
-                    cx,
-                ))),
-            )
-            .child(
                 v_form().child(
                     field()
-                        .label(t!("settings.osd_margin").to_string())
-                        .child(NumberInput::new(&self.chat_osd_margin)),
+                        .label(t!("settings.chat_max_lines").to_string())
+                        .child(NumberInput::new(&self.chat_max_lines)),
                 ),
             )
             .child(
-                v_form()
-                    .columns(3)
-                    .child(
-                        field()
-                            .label(t!("settings.notification_timeout").to_string())
-                            .child(NumberInput::new(&self.notification_timeout)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.alert_timeout").to_string())
-                            .child(NumberInput::new(&self.alert_timeout)),
-                    )
-                    .child(
-                        field()
-                            .label(t!("settings.chat_timeout").to_string())
-                            .child(NumberInput::new(&self.chat_timeout)),
-                    ),
+                self.collapsible_section(
+                    "chat-advanced",
+                    t!("settings.section_advanced").into(),
+                    self.chat_advanced_expanded,
+                    |this, expanded| this.chat_advanced_expanded = expanded,
+                    v_flex()
+                        .gap_4()
+                        .child(
+                            v_form()
+                                .columns(3)
+                                .child(
+                                    field()
+                                        .label(t!("settings.notification_timeout").to_string())
+                                        .child(NumberInput::new(&self.notification_timeout)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.alert_timeout").to_string())
+                                        .child(NumberInput::new(&self.alert_timeout)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.chat_timeout").to_string())
+                                        .child(NumberInput::new(&self.chat_timeout)),
+                                ),
+                        )
+                        .child(
+                            v_form().child(field().label_indent(false).child(self.checkbox(
+                                "chat_move_osd",
+                                t!("settings.move_osd").into(),
+                                self.draft_user.chat_move_osd,
+                                |user, value| user.chat_move_osd = value,
+                                cx,
+                            ))),
+                        ),
+                    cx,
+                ),
             )
     }
 
-    fn render_osd_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_appearance_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_4()
+            .child(Self::section_title(t!("settings.tab_osd").into()))
+            .child(
+                v_form().child(field().label_indent(false).child(self.checkbox(
+                    "show_osd",
+                    t!("settings.show_osd").into(),
+                    self.draft_user.show_osd,
+                    |user, value| user.show_osd = value,
+                    cx,
+                ))),
+            )
             .child(
                 v_form().child(
                     field()
@@ -1453,13 +1439,6 @@ impl SettingsDialog {
             .child(
                 v_form()
                     .columns(2)
-                    .child(field().label_indent(false).child(self.checkbox(
-                        "show_osd",
-                        t!("settings.show_osd").into(),
-                        self.draft_user.show_osd,
-                        |user, value| user.show_osd = value,
-                        cx,
-                    )))
                     .child(field().label_indent(false).child(self.checkbox(
                         "show_osd_warnings",
                         t!("settings.show_osd_warnings").into(),
@@ -1475,17 +1454,17 @@ impl SettingsDialog {
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
-                        "show_same_room_osd",
-                        t!("settings.show_same_room_osd").into(),
-                        self.draft_user.show_same_room_osd,
-                        |user, value| user.show_same_room_osd = value,
-                        cx,
-                    )))
-                    .child(field().label_indent(false).child(self.checkbox(
                         "show_different_room_osd",
                         t!("settings.show_different_room_osd").into(),
                         self.draft_user.show_different_room_osd,
                         |user, value| user.show_different_room_osd = value,
+                        cx,
+                    )))
+                    .child(field().label_indent(false).child(self.checkbox(
+                        "show_same_room_osd",
+                        t!("settings.show_same_room_osd").into(),
+                        self.draft_user.show_same_room_osd,
+                        |user, value| user.show_same_room_osd = value,
                         cx,
                     )))
                     .child(field().label_indent(false).child(self.checkbox(
@@ -1503,9 +1482,133 @@ impl SettingsDialog {
                         cx,
                     ))),
             )
+            .child(
+                self.collapsible_section(
+                    "chat-input-style",
+                    t!("settings.section_input_style").into(),
+                    self.input_style_expanded,
+                    |this, expanded| this.input_style_expanded = expanded,
+                    v_flex()
+                        .gap_4()
+                        .child(
+                            v_form()
+                                .columns(2)
+                                .child(
+                                    field()
+                                        .label(t!("settings.input_font_family").to_string())
+                                        .child(Input::new(&self.chat_input_font_family)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.input_font_size").to_string())
+                                        .child(NumberInput::new(
+                                            &self.chat_input_relative_font_size,
+                                        )),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.input_font_weight").to_string())
+                                        .child(NumberInput::new(&self.chat_input_font_weight)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.input_font_color").to_string())
+                                        .child(Input::new(&self.chat_input_font_color)),
+                                ),
+                        )
+                        .child(
+                            v_form().child(field().label_indent(false).child(self.checkbox(
+                                "chat_input_font_underline",
+                                t!("settings.underline_input").into(),
+                                self.draft_user.chat_input_font_underline,
+                                |user, value| user.chat_input_font_underline = value,
+                                cx,
+                            ))),
+                        ),
+                    cx,
+                ),
+            )
+            .child(
+                self.collapsible_section(
+                    "chat-output-style",
+                    t!("settings.section_output_style").into(),
+                    self.output_style_expanded,
+                    |this, expanded| this.output_style_expanded = expanded,
+                    v_flex()
+                        .gap_4()
+                        .child(
+                            v_form()
+                                .columns(2)
+                                .child(
+                                    field()
+                                        .label(t!("settings.output_font_family").to_string())
+                                        .child(Input::new(&self.chat_output_font_family)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.output_font_size").to_string())
+                                        .child(NumberInput::new(
+                                            &self.chat_output_relative_font_size,
+                                        )),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.output_font_weight").to_string())
+                                        .child(NumberInput::new(&self.chat_output_font_weight)),
+                                ),
+                        )
+                        .child(
+                            v_form().child(field().label_indent(false).child(self.checkbox(
+                                "chat_output_font_underline",
+                                t!("settings.underline_output").into(),
+                                self.draft_user.chat_output_font_underline,
+                                |user, value| user.chat_output_font_underline = value,
+                                cx,
+                            ))),
+                        ),
+                    cx,
+                ),
+            )
+            .child(
+                self.collapsible_section(
+                    "chat-margins",
+                    t!("settings.section_margins").into(),
+                    self.margins_expanded,
+                    |this, expanded| this.margins_expanded = expanded,
+                    v_flex()
+                        .gap_4()
+                        .child(
+                            v_form()
+                                .columns(3)
+                                .child(
+                                    field()
+                                        .label(t!("settings.top_margin").to_string())
+                                        .child(NumberInput::new(&self.chat_top_margin)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.left_margin").to_string())
+                                        .child(NumberInput::new(&self.chat_left_margin)),
+                                )
+                                .child(
+                                    field()
+                                        .label(t!("settings.bottom_margin").to_string())
+                                        .child(NumberInput::new(&self.chat_bottom_margin)),
+                                ),
+                        )
+                        .child(
+                            v_form().child(
+                                field()
+                                    .label(t!("settings.osd_margin").to_string())
+                                    .child(NumberInput::new(&self.chat_osd_margin)),
+                            ),
+                        ),
+                    cx,
+                ),
+            )
     }
 
-    fn render_misc_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_general_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_4()
             .child(
@@ -1570,11 +1673,9 @@ impl Render for SettingsDialog {
             .children([
                 Tab::new().label(t!("settings.tab_player")),
                 Tab::new().label(t!("settings.tab_sync")),
-                Tab::new().label(t!("settings.tab_readiness")),
-                Tab::new().label(t!("settings.tab_privacy")),
                 Tab::new().label(t!("settings.tab_chat")),
-                Tab::new().label(t!("settings.tab_osd")),
-                Tab::new().label(t!("settings.tab_misc")),
+                Tab::new().label(t!("settings.tab_appearance")),
+                Tab::new().label(t!("settings.tab_general")),
             ])
             .on_click(cx.listener(|this, ix, _, cx| {
                 this.active_tab = SettingsTab::from_index(*ix);
@@ -1587,11 +1688,9 @@ impl Render for SettingsDialog {
         let content: AnyElement = match self.active_tab {
             SettingsTab::Player => self.render_player_tab(cx).into_any_element(),
             SettingsTab::Sync => self.render_sync_tab(cx).into_any_element(),
-            SettingsTab::Readiness => self.render_readiness_tab(cx).into_any_element(),
-            SettingsTab::Privacy => self.render_privacy_tab(cx).into_any_element(),
             SettingsTab::Chat => self.render_chat_tab(cx).into_any_element(),
-            SettingsTab::Osd => self.render_osd_tab(cx).into_any_element(),
-            SettingsTab::Misc => self.render_misc_tab(cx).into_any_element(),
+            SettingsTab::Appearance => self.render_appearance_tab(cx).into_any_element(),
+            SettingsTab::General => self.render_general_tab(cx).into_any_element(),
         };
 
         v_flex()
