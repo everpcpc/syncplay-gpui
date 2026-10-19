@@ -482,7 +482,10 @@ impl SettingsDialog {
             &store,
             window,
             |this, _, event: &StoreEvent, window, cx| {
-                if matches!(event, StoreEvent::PlayersDetected) {
+                if matches!(
+                    event,
+                    StoreEvent::PlayersDetected | StoreEvent::ConfigUpdated
+                ) {
                     this.sync_player_select(window, cx);
                 }
             },
@@ -1000,8 +1003,6 @@ impl SettingsDialog {
             })
     }
 
-    /// Accept a player executable or .app bundle dropped anywhere on the
-    /// player tab and set it as the player path.
     fn on_player_executable_drop(
         &mut self,
         paths: &gpui_kit::ExternalPaths,

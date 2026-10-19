@@ -28,11 +28,10 @@ pub fn player_path_resolves(path: &str) -> bool {
     !expand_player_path(path, &[]).is_empty()
 }
 
-/// Resolve a user-supplied path (e.g. dropped onto a settings window) to a
-/// runnable player executable: the path itself, or the main binary inside an
-/// .app bundle.
+/// Resolve a user-supplied path to a runnable player executable,
+/// unwrapping .app bundles.
 pub fn resolve_player_executable(path: &Path) -> Option<PathBuf> {
-    if is_runnable_file(path) {
+    if is_runnable_file(path) && has_executable_extension(path) {
         return Some(path.to_path_buf());
     }
     if path.extension().and_then(|ext| ext.to_str()) != Some("app") || !path.is_dir() {
@@ -42,6 +41,19 @@ pub fn resolve_player_executable(path: &Path) -> Option<PathBuf> {
     let binary = path.join("Contents").join("MacOS").join(stem);
     let candidate = PathBuf::from(normalize_iina_player_path(&binary.to_string_lossy()));
     is_runnable_file(&candidate).then_some(candidate)
+}
+
+// Windows has no executable bit; only .exe is spawnable there.
+#[cfg(target_os = "windows")]
+fn has_executable_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn has_executable_extension(_: &Path) -> bool {
+    true
 }
 
 /// Detect available media players on the system
