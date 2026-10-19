@@ -430,9 +430,9 @@ impl PlaylistPanel {
                         .flex_shrink_0()
                         .text_xs()
                         .px_2()
-                        .rounded_full()
-                        .bg(cx.theme().muted)
+                        .rounded(cx.theme().radius)
                         .text_color(cx.theme().danger)
+                        .bg(cx.theme().danger.opacity(0.12))
                         .child(t!("playlist.unavailable")),
                 )
             })
@@ -470,6 +470,10 @@ impl PlaylistPanel {
             .id(("playlist-item-row", ix))
             .relative()
             .w_full()
+            .when(ix > 0, |this| {
+                this.border_t_1()
+                    .border_color(cx.theme().border.opacity(0.55))
+            })
             .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
                 if *hovered {
                     this.hovered_row = Some(ix);
@@ -667,10 +671,7 @@ impl Render for PlaylistPanel {
         let list = div()
             .id("playlist-items")
             .v_flex()
-            .flex_1()
-            .min_h_0()
-            .px_1()
-            .pr_2()
+            .size_full()
             .on_drag_move(cx.listener(Self::on_drag_move))
             .on_drop(cx.listener(Self::on_drop))
             .on_drop(cx.listener(Self::on_file_drop))
@@ -695,41 +696,59 @@ impl Render for PlaylistPanel {
             .min_h_0()
             .child(self.render_header(cx))
             .child(
-                div().flex_1().min_h_0().child(
-                    list.when(items.is_empty(), |this| {
-                        this.child(
+                div().flex_1().min_h_0().px_3().pb_2().child(
+                    v_flex()
+                        .size_full()
+                        .rounded(cx.theme().radius_lg)
+                        .border_1()
+                        .border_color(cx.theme().sidebar_border)
+                        .bg(cx.theme().popover)
+                        .child(
                             v_flex()
-                                .size_full()
-                                .items_center()
-                                .justify_center()
-                                .gap_2()
-                                .p_4()
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_hidden()
+                                .rounded(cx.theme().radius_lg)
                                 .child(
-                                    Icon::new(IconName::ListMusic)
-                                        .small()
-                                        .text_color(cx.theme().muted_foreground),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(t!("playlist.empty")),
-                                )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground.opacity(0.7))
-                                        .text_center()
-                                        .child(t!("playlist.empty_hint")),
+                                    list.when(items.is_empty(), |this| {
+                                        this.child(
+                                            v_flex()
+                                                .size_full()
+                                                .items_center()
+                                                .justify_center()
+                                                .gap_2()
+                                                .p_4()
+                                                .child(
+                                                    Icon::new(IconName::ListMusic)
+                                                        .small()
+                                                        .text_color(cx.theme().muted_foreground),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(cx.theme().muted_foreground)
+                                                        .child(t!("playlist.empty")),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(
+                                                            cx.theme()
+                                                                .muted_foreground
+                                                                .opacity(0.7),
+                                                        )
+                                                        .text_center()
+                                                        .child(t!("playlist.empty_hint")),
+                                                ),
+                                        )
+                                    })
+                                    .children(
+                                        items.iter().enumerate().map(|(ix, item)| {
+                                            self.render_item(ix, item, cx).into_any_element()
+                                        }),
+                                    ),
                                 ),
-                        )
-                    })
-                    .children(
-                        items
-                            .iter()
-                            .enumerate()
-                            .map(|(ix, item)| self.render_item(ix, item, cx).into_any_element()),
-                    ),
+                        ),
                 ),
             )
             .child(

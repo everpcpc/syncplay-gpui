@@ -662,8 +662,12 @@ impl SettingsDialog {
             }))
     }
 
-    fn section_title(label: SharedString) -> impl IntoElement {
-        div().text_sm().font_weight(FontWeight::MEDIUM).child(label)
+    fn section_title(label: SharedString, cx: &App) -> impl IntoElement {
+        div()
+            .text_xs()
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(cx.theme().muted_foreground)
+            .child(label)
     }
 
     fn collapsible_section(
@@ -1172,7 +1176,10 @@ impl SettingsDialog {
                     cx,
                 ),
             )
-            .child(Self::section_title(t!("settings.section_playback").into()))
+            .child(Self::section_title(
+                t!("settings.section_playback").into(),
+                cx,
+            ))
             .child(
                 v_form().child(
                     field().label_indent(false).child(
@@ -1228,7 +1235,7 @@ impl SettingsDialog {
                     cx,
                 ))),
             )
-            .child(Self::section_title(t!("settings.tab_privacy").into()))
+            .child(Self::section_title(t!("settings.tab_privacy").into(), cx))
             .child(
                 v_form()
                     .child(
@@ -1343,7 +1350,7 @@ impl SettingsDialog {
     fn render_appearance_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .gap_4()
-            .child(Self::section_title(t!("settings.tab_osd").into()))
+            .child(Self::section_title(t!("settings.tab_osd").into(), cx))
             .child(
                 v_form().child(field().label_indent(false).child(self.checkbox(
                     "show_osd",
