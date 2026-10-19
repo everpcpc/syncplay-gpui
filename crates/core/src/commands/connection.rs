@@ -1967,6 +1967,12 @@ pub(crate) fn store_control_password(
         return;
     }
     let mut updated = config.clone();
+    // Replace any plainer bookmark of the same room: this one also carries
+    // the operator password.
+    updated
+        .user
+        .room_list
+        .retain(|entry| parse_controlled_room_input(entry).0 != room);
     updated.user.room_list.push(room_entry);
     if let Err(e) = save_config(&updated) {
         tracing::warn!("Failed to save room list after control password: {}", e);
@@ -2661,7 +2667,20 @@ fn maybe_autosave_connection(
     updated.server.port = snapshot.port;
     updated.server.password = snapshot.password.clone();
     updated.user.username = snapshot.username.to_string();
-    updated.user.default_room = snapshot.room.to_string();
+
+    let identity = parse_controlled_room_input(&snapshot.room).0;
+    let known_password = state
+        .controlled_room_passwords
+        .lock()
+        .get(&identity)
+        .cloned();
+    // Keep the password in the default room when known, so the next launch's
+    // prefilled join re-authenticates as operator.
+    let entry = match &known_password {
+        Some(password) => format!("{identity}:{password}"),
+        None => identity.clone(),
+    };
+    updated.user.default_room = entry.clone();
 
     updated.add_recent_server(ServerConfig {
         host: snapshot.host.to_string(),
@@ -2669,14 +2688,26 @@ fn maybe_autosave_connection(
         password: snapshot.password.clone(),
     });
 
-    if !updated
+    // A plain re-join must not demote a bookmark that still carries the
+    // operator password.
+    let bookmark = updated
         .user
         .room_list
         .iter()
-        .any(|entry| entry == &snapshot.room)
-    {
-        updated.user.room_list.insert(0, snapshot.room.to_string());
-    }
+        .find(|entry| {
+            let (existing, existing_password) = parse_controlled_room_input(entry);
+            existing == identity && existing_password.is_some()
+        })
+        .cloned();
+    let front = match (known_password.is_some(), bookmark) {
+        (false, Some(bookmark)) => bookmark,
+        _ => entry,
+    };
+    updated
+        .user
+        .room_list
+        .retain(|entry| parse_controlled_room_input(entry).0 != identity);
+    updated.user.room_list.insert(0, front);
 
     if let Err(e) = save_config(&updated) {
         tracing::warn!("Failed to save config after connect: {}", e);
@@ -4035,6 +4066,37 @@ mod lifecycle_tests {
                 .map(String::as_str),
             Some("AB-123-456")
         );
+
+        disconnect_from_server_state(&state).await.unwrap();
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn connect_autosave_keeps_operator_bookmark_on_plain_rejoin() {
+        let state = AppState::new();
+        *state.fake_player_factory.lock() = Some(Arc::new(FakePlayerFactory::default()));
+        *state.client_supports_tls.lock() = false;
+        state.config.lock().user.room_list = vec!["+test:95D00F6E447B:AJ-107-331".to_string()];
+        let server = FakeSyncplayServer::start().await.unwrap();
+
+        connect_to_server_state(
+            server.host(),
+            server.port(),
+            "viewer".to_string(),
+            "+test:95D00F6E447B".to_string(),
+            None,
+            &state,
+        )
+        .await
+        .unwrap();
+
+        let config = state.config.lock().clone();
+        assert_eq!(
+            config.user.room_list,
+            vec!["+test:95D00F6E447B:AJ-107-331".to_string()]
+        );
+        assert_eq!(config.user.default_room, "+test:95D00F6E447B");
+        drop(config);
 
         disconnect_from_server_state(&state).await.unwrap();
         server.close();
