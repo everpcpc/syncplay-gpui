@@ -589,7 +589,7 @@ mod tests {
     #[test]
     fn dropped_plain_executable_is_used_directly() {
         let temp_dir = tempfile::tempdir().unwrap();
-        let player_path = temp_dir.path().join("player");
+        let player_path = temp_dir.path().join("player.exe");
         File::create(&player_path).unwrap();
         mark_runnable(&player_path);
 
