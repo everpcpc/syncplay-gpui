@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName;
+use gpui_kit::base::SelectableText;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::message_scroller::{MessageScroller, MessageScrollerState};
 use gpui_kit::component::tab::{Tab, TabBar};
@@ -210,7 +211,7 @@ impl Render for ChatPanel {
                 .into_any_element()
         } else {
             MessageScroller::new("chat-messages", self.scroller.clone(), move |ix, _, cx| {
-                render_message_row(&displayed[ix], dark, cx)
+                render_message_row(ix, &displayed[ix], dark, cx)
             })
             .with_jump_button_label(t!("chat.new_messages"))
             .with_jump_button_renderer(|button| button.label(t!("chat.new_messages")))
@@ -315,7 +316,7 @@ fn format_timestamp(timestamp: &str) -> SharedString {
         .unwrap_or_else(|_| timestamp.into())
 }
 
-fn render_message_row(message: &DisplayMessage, dark: bool, cx: &App) -> AnyElement {
+fn render_message_row(ix: usize, message: &DisplayMessage, dark: bool, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let is_jumped = message
         .collapse_key
@@ -324,8 +325,12 @@ fn render_message_row(message: &DisplayMessage, dark: bool, cx: &App) -> AnyElem
     let is_system = message.message_type == "system";
     let is_error = message.message_type == "error";
 
+    // gpui never reports text baselines to taffy, so baseline alignment
+    // degrades to bottom-by-height; top alignment keeps the timestamp and
+    // username on the first line of a wrapped message.
     let mut line = h_flex()
         .w_full()
+        .items_start()
         .gap_2()
         .when(is_jumped, |this| this.opacity(0.55))
         .child(
@@ -341,6 +346,7 @@ fn render_message_row(message: &DisplayMessage, dark: bool, cx: &App) -> AnyElem
             this.child(
                 div()
                     .flex_shrink_0()
+                    .text_sm()
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(color)
                     .child(format!("{username}:")),
@@ -355,7 +361,10 @@ fn render_message_row(message: &DisplayMessage, dark: bool, cx: &App) -> AnyElem
     } else {
         body = body.text_sm();
     }
-    line = line.child(body.child(message.message.clone()));
+    line = line.child(body.child(SelectableText::new(
+        ("chat-message", ix),
+        message.message.clone(),
+    )));
 
     if message.count > 1 {
         line = line.child(
