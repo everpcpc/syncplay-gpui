@@ -7,6 +7,8 @@ mod chat;
 mod connection;
 mod events;
 mod i18n;
+mod onboarding;
+mod player_picker;
 mod playlist;
 mod rooms;
 mod root;
@@ -52,6 +54,9 @@ fn main() {
         .expect("failed to spawn tokio runtime thread");
 
     let core = AppState::new();
+    // `load_config` persists defaults on first run, so the onboarding check
+    // must read the store before it.
+    let first_run = !syncplay_core::config::has_saved_config();
     let config = load_config().unwrap_or_else(|error| {
         tracing::error!("Failed to load config: {error}");
         syncplay_core::config::SyncplayConfig::default()
@@ -115,7 +120,7 @@ fn main() {
                         cx,
                     )
                 });
-                cx.new(|cx| RootView::new(store, window, cx))
+                cx.new(|cx| RootView::new(store, window, cx, first_run))
             })
             .expect("failed to open window");
 

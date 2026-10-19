@@ -1315,6 +1315,49 @@ settings:
     zh-TW: 停用
     ja: 無効
     fr: "Désactivé"
+setup:
+  title:
+    en: Welcome to Syncplay
+    zh-CN: 欢迎使用 Syncplay
+    zh-TW: 歡迎使用 Syncplay
+    ja: Syncplay へようこそ
+    fr: "Bienvenue dans Syncplay"
+  subtitle:
+    en: Two things before you start — pick your language and make sure a media player is ready. You can change all of this later in Settings.
+    zh-CN: 开始之前先确认两件事：语言和播放器。这些以后都能在“设置”里改。
+    zh-TW: 開始之前先確認兩件事：語言和播放器。這些之後都能在「設定」中修改。
+    ja: 始める前に、言語とメディアプレイヤーの2点を確認してください。これらは後から「設定」で変更できます。
+    fr: "Avant de commencer, vérifiez deux choses : la langue et le lecteur multimédia. Vous pourrez tout modifier ensuite dans les Paramètres."
+  player_ready:
+    en: Player ready — you are all set.
+    zh-CN: 播放器已就绪，可以放心使用。
+    zh-TW: 播放器已就緒，可以放心使用。
+    ja: プレイヤーの準備ができました。
+    fr: "Le lecteur est prêt."
+  player_missing:
+    en: No usable player found yet.
+    zh-CN: 还没有可用的播放器。
+    zh-TW: 還沒有可用的播放器。
+    ja: 利用可能なプレイヤーがまだ見つかりません。
+    fr: "Aucun lecteur utilisable pour le moment."
+  install_hint:
+    en: Install mpv (https://mpv.io) and click refresh, or drag the player executable onto this window.
+    zh-CN: 安装 mpv（https://mpv.io）后点刷新，或把播放器程序拖到本窗口。
+    zh-TW: 安裝 mpv（https://mpv.io）後點重新整理，或把播放器程式拖到本視窗。
+    ja: mpv（https://mpv.io）をインストールして再検出するか、プレイヤーの実行ファイルをこのウィンドウにドラッグしてください。
+    fr: "Installez mpv (https://mpv.io) puis actualisez, ou glissez l'exécutable du lecteur sur cette fenêtre."
+  get_started:
+    en: Get started
+    zh-CN: 开始使用
+    zh-TW: 開始使用
+    ja: はじめる
+    fr: "Commencer"
+  skip:
+    en: Skip
+    zh-CN: 跳过
+    zh-TW: 略過
+    ja: スキップ
+    fr: "Ignorer"
 notify:
   connection_failed:
     en: "Connection failed: %{error}"

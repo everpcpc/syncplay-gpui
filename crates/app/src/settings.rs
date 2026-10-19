@@ -6,7 +6,6 @@ use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::collapsible::Collapsible;
 use gpui_kit::component::form::{field, v_form};
 use gpui_kit::component::input::{Input, InputEvent, InputState, NumberInput};
-use gpui_kit::component::notification::NotificationType;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::tab::{Tab, TabBar};
@@ -19,14 +18,13 @@ use gpui_kit::{
     SharedString, Styled as _, Subscription, Window,
 };
 use rust_i18n::t;
-use syncplay_core::config::settings::PlayerConfig;
 use syncplay_core::config::settings::{
     ChatInputPosition, ChatOutputMode, PrivacyMode, UnpauseAction,
 };
 use syncplay_core::config::UserPreferences;
-use syncplay_core::player::detection::{resolve_player_executable, DetectedPlayer};
 
 use crate::i18n;
+use crate::player_picker;
 use crate::store::{AppStore, StoreEvent};
 
 const SAVE_DEBOUNCE: Duration = Duration::from_millis(500);
@@ -447,7 +445,9 @@ impl SettingsDialog {
             |this, input, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     let path = input.read(cx).value().to_string();
-                    this.update_player_config(cx, |player| player.player_path = path);
+                    player_picker::update_player_config(&this.store, cx, |player| {
+                        player.player_path = path
+                    });
                 }
             },
         ));
@@ -467,7 +467,9 @@ impl SettingsDialog {
                         .split_whitespace()
                         .map(str::to_string)
                         .collect();
-                    this.update_player_config(cx, |player| player.player_arguments = args);
+                    player_picker::update_player_config(&this.store, cx, |player| {
+                        player.player_arguments = args
+                    });
                 }
             },
         ));
@@ -477,7 +479,13 @@ impl SettingsDialog {
             window,
             |this, _, event: &SelectEvent<Vec<String>>, window, cx| {
                 if let SelectEvent::Confirm(Some(value)) = event {
-                    this.on_player_selected(value.clone(), window, cx);
+                    player_picker::on_player_selected(
+                        &this.store,
+                        &this.player_path,
+                        value.clone(),
+                        window,
+                        cx,
+                    );
                 }
             },
         ));
@@ -489,12 +497,12 @@ impl SettingsDialog {
                     event,
                     StoreEvent::PlayersDetected | StoreEvent::ConfigUpdated
                 ) {
-                    this.sync_player_select(window, cx);
+                    player_picker::sync_player_select(&this.store, &this.player_select, window, cx);
                 }
             },
         ));
 
-        let mut this = Self {
+        let this = Self {
             store,
             active_tab: SettingsTab::Sync,
             thresholds_expanded: false,
@@ -543,7 +551,7 @@ impl SettingsDialog {
             player_args,
             _subscriptions: subscriptions,
         };
-        this.sync_player_select(window, cx);
+        player_picker::sync_player_select(&this.store, &this.player_select, window, cx);
         this
     }
 
@@ -685,66 +693,6 @@ impl SettingsDialog {
                     })),
             )
             .content(content)
-    }
-
-    fn update_player_config(&self, cx: &mut Context<Self>, edit: impl FnOnce(&mut PlayerConfig)) {
-        let mut config = self.store.read(cx).config.clone();
-        edit(&mut config.player);
-        self.store.read(cx).update_config(config);
-    }
-
-    fn refresh_players(&mut self, cx: &mut Context<Self>) {
-        self.store.update(cx, |store, cx| {
-            store.load_cached_players(cx);
-            store.refresh_players(cx);
-        });
-    }
-
-    fn sync_player_select(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let (player_path, players) = {
-            let store = self.store.read(cx);
-            (
-                store.config.player.player_path.clone(),
-                store.detected_players.clone(),
-            )
-        };
-
-        let mut items: Vec<String> = players.iter().map(player_label).collect();
-        items.push(custom_path_label());
-
-        let selected = if player_path == "custom" {
-            Some(IndexPath::new(items.len() - 1))
-        } else {
-            players
-                .iter()
-                .position(|player| player.path == player_path)
-                .map(IndexPath::new)
-        };
-        self.player_select.update(cx, |select, cx| {
-            select.set_items(items, window, cx);
-            select.set_selected_index(selected, window, cx);
-        });
-    }
-
-    fn on_player_selected(&mut self, label: String, window: &mut Window, cx: &mut Context<Self>) {
-        if label == custom_path_label() {
-            self.player_path.update(cx, |input, cx| {
-                input.set_value("", window, cx);
-            });
-            self.update_player_config(cx, |player| player.player_path = "custom".to_string());
-        } else if let Some(path) = self
-            .store
-            .read(cx)
-            .detected_players
-            .iter()
-            .find(|player| player_label(player) == label)
-            .map(|player| player.path.clone())
-        {
-            self.player_path.update(cx, |input, cx| {
-                input.set_value(path.clone(), window, cx);
-            });
-            self.update_player_config(cx, |player| player.player_path = path);
-        }
     }
 
     fn edit_user_draft(
@@ -1013,7 +961,7 @@ impl SettingsDialog {
             window,
             cx,
         );
-        self.sync_player_select(window, cx);
+        player_picker::sync_player_select(&self.store, &self.player_select, window, cx);
     }
 
     fn render_save_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1044,32 +992,6 @@ impl SettingsDialog {
             })
     }
 
-    fn on_player_executable_drop(
-        &mut self,
-        paths: &gpui_kit::ExternalPaths,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(path) = paths.paths().first() else {
-            return;
-        };
-        let Some(executable) = resolve_player_executable(path) else {
-            window.push_notification(
-                (
-                    NotificationType::Warning,
-                    t!("settings.player_drop_invalid").to_string(),
-                ),
-                cx,
-            );
-            return;
-        };
-        let value = executable.to_string_lossy().to_string();
-        self.player_path.update(cx, |input, cx| {
-            input.set_value(value.clone(), window, cx);
-        });
-        self.update_player_config(cx, |player| player.player_path = value);
-    }
-
     fn render_player_tab(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let (players, players_refreshing, players_checked_at, player_path) = {
             let store = self.store.read(cx);
@@ -1080,10 +1002,7 @@ impl SettingsDialog {
                 store.config.player.player_path.clone(),
             )
         };
-        let checked_label = players_checked_at.and_then(|at| {
-            chrono::DateTime::from_timestamp_millis(at)
-                .map(|at| at.with_timezone(&chrono::Local).format("%H:%M").to_string())
-        });
+        let checked_label = player_picker::last_checked_label(players_checked_at);
         let picker: AnyElement = if players.is_empty() {
             div()
                 .text_sm()
@@ -1132,7 +1051,7 @@ impl SettingsDialog {
                                             })
                                             .disabled(players_refreshing)
                                             .on_click(cx.listener(|this, _, _, cx| {
-                                                this.refresh_players(cx);
+                                                player_picker::refresh_players(&this.store, cx);
                                             })),
                                     ),
                             ),
@@ -1140,10 +1059,7 @@ impl SettingsDialog {
                     .child(picker),
             ),
         );
-        if player_path == "custom"
-            || players.is_empty()
-            || !players.iter().any(|player| player.path == player_path)
-        {
+        if player_picker::player_path_unmatched(&player_path, &players) {
             form = form.child(
                 field()
                     .label(t!("settings.player_path_label").to_string())
@@ -1160,7 +1076,15 @@ impl SettingsDialog {
         div()
             .id("player-settings-drop")
             .size_full()
-            .on_drop(cx.listener(Self::on_player_executable_drop))
+            .on_drop(cx.listener(|this, paths, window, cx| {
+                player_picker::on_player_executable_drop(
+                    &this.store,
+                    &this.player_path,
+                    paths,
+                    window,
+                    cx,
+                );
+            }))
             .child(form)
     }
 
@@ -1680,7 +1604,7 @@ impl Render for SettingsDialog {
             .on_click(cx.listener(|this, ix, _, cx| {
                 this.active_tab = SettingsTab::from_index(*ix);
                 if this.active_tab == SettingsTab::Player {
-                    this.refresh_players(cx);
+                    player_picker::refresh_players(&this.store, cx);
                 }
                 cx.notify();
             }));
@@ -1796,7 +1720,9 @@ pub(crate) fn open_settings_dialog_at(
         this
     });
     if tab == SettingsTab::Player {
-        view.update(cx, |this, cx| this.refresh_players(cx));
+        view.update(cx, |this, cx| {
+            player_picker::refresh_players(&this.store, cx)
+        });
     }
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
@@ -1804,17 +1730,4 @@ pub(crate) fn open_settings_dialog_at(
             .w(px(896.))
             .child(view.clone())
     });
-}
-
-const CUSTOM_PATH_KEY: &str = "settings.custom_path";
-
-fn custom_path_label() -> String {
-    i18n::tr(CUSTOM_PATH_KEY).to_string()
-}
-
-fn player_label(player: &DetectedPlayer) -> String {
-    match &player.version {
-        Some(version) => format!("{} ({}) - {}", player.name, version, player.path),
-        None => format!("{} - {}", player.name, player.path),
-    }
 }

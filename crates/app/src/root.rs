@@ -30,13 +30,19 @@ pub struct RootView {
     connect_panel: Entity<ConnectPanel>,
     main_split: Entity<ResizableState>,
     side_split: Entity<ResizableState>,
+    first_run: bool,
     layout_save_task: Task<()>,
     _window_size_watch: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl RootView {
-    pub fn new(store: Entity<AppStore>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        store: Entity<AppStore>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        first_run: bool,
+    ) -> Self {
         let chat = cx.new(|cx| ChatPanel::new(store.clone(), window, cx));
         let user_list = cx.new(|cx| UserListPanel::new(store.clone(), window, cx));
         let playlist = cx.new(|cx| PlaylistPanel::new(store.clone(), window, cx));
@@ -53,6 +59,7 @@ impl RootView {
             connect_panel,
             main_split,
             side_split,
+            first_run,
             layout_save_task: Task::ready(()),
             _window_size_watch: Task::ready(()),
             _subscriptions: subscriptions,
@@ -95,8 +102,11 @@ impl RootView {
         .detach();
     }
 
-    fn startup(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn startup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.store.update(cx, |store, cx| store.refresh_players(cx));
+        if self.first_run {
+            crate::onboarding::open_setup_wizard(window, cx, self.store.clone());
+        }
         let config = self.store.read(cx).config.clone();
         if config.user.auto_connect
             && !config.user.username.trim().is_empty()

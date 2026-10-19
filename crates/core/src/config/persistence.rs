@@ -46,6 +46,22 @@ pub fn save_config(config: &SyncplayConfig) -> Result<()> {
     save_config_to(&get_config_path()?, config)
 }
 
+/// True when the store already holds a saved config. Must be checked before
+/// `load_config`: a first run writes defaults to disk, erasing the
+/// distinction the onboarding wizard keys on.
+pub fn has_saved_config() -> bool {
+    match get_config_path() {
+        Ok(path) => has_saved_config_at(&path),
+        Err(_) => false,
+    }
+}
+
+pub(crate) fn has_saved_config_at(path: &Path) -> bool {
+    read_store(path)
+        .map(|store| store.contains_key(CONFIG_KEY))
+        .unwrap_or(false)
+}
+
 pub(crate) fn load_config_from(path: &Path) -> Result<SyncplayConfig> {
     let store = read_store(path)?;
     if let Some(value) = store.get(CONFIG_KEY) {
@@ -73,7 +89,15 @@ fn read_store(path: &Path) -> Result<Map<String, Value>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
         Err(e) => return Err(e).context("Failed to read config store"),
     };
-    let value: Value = serde_json::from_str(&contents).context("Failed to parse config store")?;
+    let value: Value = match serde_json::from_str(&contents) {
+        Ok(value) => value,
+        // An unparseable store would otherwise fail every later save and trip
+        // the first-run check on each launch; quarantine it and start clean.
+        Err(_) => {
+            let _ = std::fs::rename(path, path.with_extension("json.bak"));
+            return Ok(Map::new());
+        }
+    };
     Ok(value.as_object().cloned().unwrap_or_default())
 }
 
@@ -164,9 +188,26 @@ mod tests {
     }
 
     #[test]
-    fn invalid_store_json_errors() {
+    fn invalid_store_json_heals_to_defaults() {
         let (_dir, path) = temp_store_path();
         std::fs::write(&path, "not json").unwrap();
-        assert!(load_config_from(&path).is_err());
+        let config = load_config_from(&path).unwrap();
+        assert_eq!(config.server.host, "syncplay.pl");
+        // The corrupt file is quarantined and later loads keep working.
+        assert!(path.with_extension("json.bak").exists());
+        assert!(load_config_from(&path).is_ok());
+    }
+
+    #[test]
+    fn has_saved_config_tracks_config_key() {
+        let (_dir, path) = temp_store_path();
+        assert!(!has_saved_config_at(&path));
+
+        // A store with only unrelated keys still counts as never configured.
+        std::fs::write(&path, r#"{"unrelated": 42}"#).unwrap();
+        assert!(!has_saved_config_at(&path));
+
+        save_config_to(&path, &SyncplayConfig::default()).unwrap();
+        assert!(has_saved_config_at(&path));
     }
 }

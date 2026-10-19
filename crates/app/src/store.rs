@@ -622,8 +622,6 @@ impl AppStore {
         });
     }
 
-    /// Adopt the first detected player when the configured path cannot
-    /// launch, so a fresh install works without a trip to settings.
     /// Adopt the first detected player when no player was ever configured,
     /// so a fresh install works without a trip to settings.
     fn adopt_detected_player_if_needed(&mut self) {
