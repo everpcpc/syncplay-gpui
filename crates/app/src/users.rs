@@ -8,12 +8,12 @@ use gpui_kit::component::{
 use gpui_kit::{
     div, hsla, prelude::FluentBuilder as _, px, white, AppContext as _, Context, Entity,
     FontWeight, Hsla, InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    SharedString, Styled as _, Subscription, Window,
+    SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 use rust_i18n::t;
 
 use crate::events::UserInfoEvent;
-use crate::rooms::RoomManagerDialog;
+use crate::rooms::{copy_room_code_button, display_room_name, managed_badge, RoomManagerDialog};
 use crate::store::AppStore;
 
 pub struct UserListPanel {
@@ -54,6 +54,7 @@ impl UserListPanel {
             .find(|user| user.username == current_username);
         let is_ready = current_user.map(|user| user.is_ready).unwrap_or(false);
         let room = current_room(store);
+        let (room_display, room_managed) = display_room_name(&room);
 
         h_flex()
             .w_full()
@@ -65,42 +66,77 @@ impl UserListPanel {
             .border_color(cx.theme().sidebar_border)
             .bg(cx.theme().popover)
             .child(
-                v_flex().min_w_0().child(
-                    div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(room),
-                ),
+                v_flex()
+                    .id("open-rooms-card")
+                    .cursor_pointer()
+                    .min_w_0()
+                    .flex_1()
+                    .rounded(cx.theme().radius)
+                    .hover(|this| this.bg(cx.theme().sidebar_accent))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_room_manager(window, cx)))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t!("users.current_room")),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(room_display.to_string()),
+                            )
+                            .when(room_managed, |this| this.child(managed_badge(cx))),
+                    ),
             )
             .child(
                 h_flex()
                     .flex_shrink_0()
                     .gap_1()
                     .when(connected, |this| {
-                        let ready_button = Button::new("toggle-ready")
-                            .small()
-                            .icon(if is_ready {
-                                IconName::Check
-                            } else {
-                                IconName::CircleDashed
-                            })
-                            .tooltip_placement(Placement::Right)
-                            .tooltip(if is_ready {
-                                t!("users.ready")
-                            } else {
-                                t!("users.not_ready")
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.store.read(cx).set_ready(!is_ready);
-                            }));
-                        this.child(if is_ready {
-                            ready_button.primary()
-                        } else {
-                            ready_button.secondary()
-                        })
+                        // Ready is a state toggle, not a primary action: keep
+                        // it the same quiet ghost icon as its neighbors, with
+                        // the state carried by icon + color instead of a
+                        // heavy filled button.
+                        this.child(
+                            Button::new("toggle-ready")
+                                .ghost()
+                                .small()
+                                .icon(if is_ready {
+                                    IconName::Check
+                                } else {
+                                    IconName::CircleDashed
+                                })
+                                .tooltip_placement(Placement::Right)
+                                .tooltip(if is_ready {
+                                    t!("users.ready")
+                                } else {
+                                    t!("users.not_ready")
+                                })
+                                .text_color(if is_ready {
+                                    cx.theme().success
+                                } else {
+                                    cx.theme().muted_foreground
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.store.read(cx).set_ready(!is_ready);
+                                })),
+                        )
+                    })
+                    .when(room_managed, |this| {
+                        // Match the ready/pencil buttons so the row stays even;
+                        // the hint rows keep the helper's xsmall default.
+                        this.child(
+                            copy_room_code_button("copy-room-code", room.to_string()).small(),
+                        )
                     })
                     .child(
                         Button::new("open-rooms")
@@ -122,6 +158,7 @@ impl UserListPanel {
         self_user: Option<&UserInfoEvent>,
         room: &str,
         current_username: &str,
+        separator: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let same_room = user.room == room;
@@ -148,10 +185,14 @@ impl UserListPanel {
 
         h_flex()
             .w_full()
-            .px_2()
-            .py_1p5()
+            .px_3()
+            .py_2()
             .gap_2()
             .rounded(cx.theme().radius)
+            .when(separator, |this| {
+                this.border_t_1()
+                    .border_color(cx.theme().border.opacity(0.55))
+            })
             .child(render_avatar(&user.username))
             .child(
                 v_flex()
@@ -298,24 +339,41 @@ impl Render for UserListPanel {
             })
             .when(empty_hint.is_none(), |this| {
                 this.child(
-                    div()
-                        .id("user-list")
-                        .v_flex()
-                        .flex_1()
-                        .min_h_0()
-                        .px_1()
-                        .pr_2()
-                        .overflow_y_scrollbar()
-                        .children(sorted.iter().map(|user| {
-                            self.render_user_row(
-                                user,
-                                self_user.as_ref(),
-                                &room,
-                                &current_username,
-                                cx,
-                            )
-                            .into_any_element()
-                        })),
+                    div().flex_1().min_h_0().px_3().pb_2().child(
+                        v_flex()
+                            .size_full()
+                            .rounded(cx.theme().radius_lg)
+                            .border_1()
+                            .border_color(cx.theme().sidebar_border)
+                            .bg(cx.theme().popover)
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_hidden()
+                                    .rounded(cx.theme().radius_lg)
+                                    .child(
+                                        div()
+                                            .id("user-list")
+                                            .v_flex()
+                                            .size_full()
+                                            .overflow_y_scrollbar()
+                                            .children(sorted.iter().enumerate().map(
+                                                |(ix, user)| {
+                                                    self.render_user_row(
+                                                        user,
+                                                        self_user.as_ref(),
+                                                        &room,
+                                                        &current_username,
+                                                        ix > 0,
+                                                        cx,
+                                                    )
+                                                    .into_any_element()
+                                                },
+                                            )),
+                                    ),
+                            ),
+                    ),
                 )
             })
     }

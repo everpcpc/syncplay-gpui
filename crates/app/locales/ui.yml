@@ -557,36 +557,36 @@ rooms:
     zh-TW: 房間名稱
     ja: ルーム名
     fr: "Nom du salon"
-  add_room_ph:
-    en: Add a room
-    zh-CN: 添加房间
-    zh-TW: 新增房間
-    ja: ルームを追加
-    fr: "Ajouter un salon"
+  room_list:
+    en: Rooms
+    zh-CN: 房间列表
+    zh-TW: 房間列表
+    ja: ルーム一覧
+    fr: "Salons"
+  save:
+    en: Save
+    zh-CN: 保存
+    zh-TW: 儲存
+    ja: 保存
+    fr: "Enregistrer"
+  empty_list:
+    en: No rooms yet — join one with the field above.
+    zh-CN: 还没有可加入的房间，在上方输入房间名即可加入。
+    zh-TW: 還沒有可加入的房間，在上方輸入房間名即可加入。
+    ja: まだルームがありません。上の欄に名前を入力して参加してください。
+    fr: "Aucun salon — rejoignez-en un avec le champ ci-dessus."
   room_exists:
     en: Room already exists
     zh-CN: 房间已存在
     zh-TW: 房間已存在
     ja: このルームは既に存在します
     fr: "Le salon existe déjà"
-  server_rooms:
-    en: Server Rooms
-    zh-CN: 服务器房间
-    zh-TW: 伺服器房間
-    ja: サーバーのルーム
-    fr: "Salons du serveur"
   persistent:
     en: Persistent
     zh-CN: 常驻
     zh-TW: 常駐
     ja: 常設
     fr: "Persistant"
-  no_server_rooms:
-    en: No rooms advertised by the server.
-    zh-CN: 服务器没有公布房间。
-    zh-TW: 伺服器沒有公佈房間。
-    ja: サーバーから公開されているルームはありません。
-    fr: "Aucun salon annoncé par le serveur."
   current:
     en: Current
     zh-CN: 当前
@@ -600,17 +600,17 @@ rooms:
     ja: 参加
     fr: "Rejoindre"
   create_managed:
-    en: Create Managed Room
-    zh-CN: 创建托管房间
-    zh-TW: 建立託管房間
-    ja: 管理ルームを作成
-    fr: "Créer un salon géré"
+    en: Create Managed Room (You Run It)
+    zh-CN: 创建托管房间（你当管理员）
+    zh-TW: 建立託管房間（你當管理員）
+    ja: 管理ルームを作成（あなたがオペレーター）
+    fr: "Créer un salon géré (vous le gérez)"
   create_managed_desc:
-    en: Just pick a room name — the operator password is generated for you and shown after creation.
-    zh-CN: 只需填房间名——管理员密码会自动生成，创建后显示给你保存。
-    zh-TW: 只需填房間名——管理員密碼會自動產生，建立後顯示給你保存。
-    ja: ルーム名を入力するだけです。オペレーターパスワードは自動生成され、作成後に表示されます。
-    fr: "Choisissez simplement un nom de salon — le mot de passe d’opérateur est généré pour vous et affiché après la création."
+    en: Pick a name and you become its operator — the operator password is generated for you and shown after creation.
+    zh-CN: 填个房间名即可，创建后你就是管理员——管理员密码会自动生成，创建后显示给你保存。
+    zh-TW: 填個房間名即可，建立後你就是管理員——管理員密碼會自動產生，建立後顯示給你保存。
+    ja: ルーム名を入力するだけで、あなたがオペレーターになります——パスワードは自動生成され、作成後に表示されます。
+    fr: "Choisissez un nom et vous en devenez l’opérateur — le mot de passe est généré pour vous et affiché après la création."
   create:
     en: Create
     zh-CN: 创建
@@ -635,18 +635,36 @@ rooms:
     zh-TW: 認證
     ja: 認証
     fr: "S’authentifier"
-  saved_rooms:
-    en: Saved Rooms
-    zh-CN: 已保存的房间
-    zh-TW: 已儲存的房間
-    ja: 保存済みルーム
-    fr: "Salons enregistrés"
-  no_saved:
-    en: No rooms saved.
-    zh-CN: 没有已保存的房间。
-    zh-TW: 沒有已儲存的房間。
-    ja: 保存済みルームはありません。
-    fr: "Aucun salon enregistré."
+  click_to_switch:
+    en: click to switch
+    zh-CN: 点击切换
+    zh-TW: 點擊切換
+    ja: クリックで切替
+    fr: "cliquer pour changer"
+  managed:
+    en: Managed
+    zh-CN: 托管
+    zh-TW: 託管
+    ja: 管理
+    fr: "Géré"
+  copy_code:
+    en: Copy room code
+    zh-CN: 复制房间码
+    zh-TW: 複製房間碼
+    ja: ルームコードをコピー
+    fr: "Copier le code du salon"
+  copied:
+    en: Room code copied
+    zh-CN: 已复制房间码
+    zh-TW: 已複製房間碼
+    ja: ルームコードをコピーしました
+    fr: "Code du salon copié"
+  join_as_operator:
+    en: You'll join as the operator
+    zh-CN: 将以管理员身份加入
+    zh-TW: 將以管理員身份加入
+    ja: オペレーターとして参加します
+    fr: "Vous rejoindrez en tant qu’opérateur"
   default:
     en: Default
     zh-CN: 默认
@@ -659,19 +677,37 @@ rooms:
     zh-TW: 設為預設
     ja: デフォルトに設定
     fr: "Définir par défaut"
-  description:
-    en: Manage room connections and defaults.
-    zh-CN: 管理房间连接与默认房间。
-    zh-TW: 管理房間連線與預設房間。
-    ja: ルーム接続とデフォルトを管理します。
-    fr: "Gérez les connexions aux salons et les salons par défaut."
+  tab_switch:
+    en: Switch
+    zh-CN: 切换
+    zh-TW: 切換
+    ja: 切り替え
+    fr: "Changer"
+  tab_manage:
+    en: Managed & Auth
+    zh-CN: 托管与认证
+    zh-TW: 託管與認證
+    ja: 管理と認証
+    fr: "Gérés & auth"
+  manage_unavailable:
+    en: Available while connected to a server with managed rooms.
+    zh-CN: 连接到支持托管房间的服务器后可用。
+    zh-TW: 連線到支援託管房間的伺服器後可用。
+    ja: 管理ルーム対応のサーバーに接続すると利用できます。
+    fr: "Disponible une fois connecté à un serveur avec des salons gérés."
   connect_title:
-    en: Connect to Room
-    zh-CN: 连接房间
-    zh-TW: 連線房間
-    ja: ルームに接続
-    fr: "Se connecter au salon"
+    en: Switch Room
+    zh-CN: 切换房间
+    zh-TW: 切換房間
+    ja: ルームを切り替え
+    fr: "Changer de salon"
 users:
+  current_room:
+    en: Current room
+    zh-CN: 当前房间
+    zh-TW: 目前房間
+    ja: 現在のルーム
+    fr: "Salon actuel"
   rooms_title:
     en: Rooms
     zh-CN: 房间
