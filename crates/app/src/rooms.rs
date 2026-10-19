@@ -13,6 +13,7 @@ use gpui_kit::{
 };
 use rust_i18n::t;
 use syncplay_core::config::SyncplayConfig;
+use syncplay_core::utils::parse_controlled_room_input;
 
 use crate::store::AppStore;
 
@@ -110,16 +111,21 @@ impl RoomManagerDialog {
     pub fn prepare(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.tab = RoomManagerTab::Switch;
         self.hovered_room = None;
-        let (default_room, live_room) = {
+        let (live_room, room_seed) = {
             let store = self.store.read(cx);
-            (store.config.user.default_room.clone(), live_room(store))
+            let default_room = &store.config.user.default_room;
+            // Prefer the password-bearing bookmark as seed so the hinted join
+            // really re-authenticates as operator.
+            let room_seed = saved_operator_entry(&store.config, default_room)
+                .unwrap_or_else(|| default_room.clone());
+            (live_room(store), room_seed)
         };
-        let managed_seed = live_room.as_deref().unwrap_or(default_room.as_str());
+        let managed_seed = live_room.as_deref().unwrap_or(room_seed.as_str());
         let managed_seed = strip_managed_room_name(managed_seed).to_string();
 
-        let (room_display, room_managed) = display_room_name(&default_room);
+        let (room_display, room_managed) = display_room_name(&room_seed);
         let room_display = room_display.to_string();
-        self.room_seed_raw = room_managed.then_some(default_room);
+        self.room_seed_raw = room_managed.then_some(room_seed);
         self.room_name.update(cx, |input, cx| {
             input.set_value(room_display, window, cx);
         });
@@ -135,6 +141,17 @@ impl RoomManagerDialog {
     fn applicable_seed(&self, cx: &App) -> Option<String> {
         let raw = self.room_seed_raw.as_ref()?;
         (self.room_name.read(cx).value().trim() == display_room_name(raw).0).then(|| raw.clone())
+    }
+
+    /// Seed whose join really ends up operator: the bookmark embeds the
+    /// control password, or one is already known this session. Only then is
+    /// the join-as-operator hint shown.
+    fn operator_seed(&self, cx: &App) -> Option<String> {
+        let raw = self.applicable_seed(cx)?;
+        self.store
+            .read(cx)
+            .has_operator_credentials(&raw)
+            .then_some(raw)
     }
 
     /// Room the switch-room input refers to: the raw seed while the field
@@ -223,13 +240,37 @@ impl RoomManagerDialog {
         let current = live_room(store);
         let hairline = cx.theme().border.opacity(0.55);
 
-        let mut rows: Vec<(String, bool)> = saved.iter().map(|room| (room.clone(), true)).collect();
+        // Merge by room identity: an operator bookmark (`+name:hash:pw`) and
+        // the live room (`+name:hash`) are the same room — one row, keeping
+        // the bookmark so clicking it re-authenticates.
+        let mut rows: Vec<(String, bool)> = Vec::new();
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for room in &saved {
+            let identity = room_identity(room);
+            match seen.get(&identity) {
+                Some(&ix) => {
+                    if parse_controlled_room_input(&rows[ix].0).1.is_none()
+                        && parse_controlled_room_input(room).1.is_some()
+                    {
+                        rows[ix].0 = room.clone();
+                    }
+                }
+                None => {
+                    seen.insert(identity, rows.len());
+                    rows.push((room.clone(), true));
+                }
+            }
+        }
         for room in store.rooms.iter() {
-            if !saved.contains(room) {
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                seen.entry(room_identity(room))
+            {
+                entry.insert(rows.len());
                 rows.push((room.clone(), false));
             }
         }
         let total = rows.len();
+        let current_identity = current.as_deref().map(room_identity);
 
         v_flex()
             .gap_2()
@@ -282,9 +323,11 @@ impl RoomManagerDialog {
                                         .overflow_y_scrollbar()
                                         .children(rows.iter().enumerate().map(
                                             |(ix, (room, is_saved))| {
-                                                let is_current =
-                                                    current.as_deref() == Some(room.as_str());
-                                                let is_default = *is_saved && *room == default_room;
+                                                let is_current = current_identity.as_deref()
+                                                    == Some(room_identity(room).as_str());
+                                                let is_default = *is_saved
+                                                    && room_identity(room)
+                                                        == room_identity(&default_room);
                                                 let hovered = self.hovered_room.as_deref()
                                                     == Some(room.as_str());
                                                 let (display, managed) = display_room_name(room);
@@ -417,6 +460,9 @@ impl RoomManagerDialog {
                                                                     .on_click(cx.listener({
                                                                         let room = room.clone();
                                                                         move |this, _, _, cx| {
+                                                                            // Forget the room
+                                                                            // entirely, plain and
+                                                                            // operator bookmark alike.
                                                                             this.update_config(
                                                                                 cx,
                                                                                 |config| {
@@ -425,8 +471,8 @@ impl RoomManagerDialog {
                                                                                         .room_list
                                                                                         .retain(
                                                                                             |entry| {
-                                                                                                entry
-                                                                                                    != &room
+                                                                                                room_identity(entry)
+                                                                                                    != room_identity(&room)
                                                                                             },
                                                                                         );
                                                                                 },
@@ -548,7 +594,7 @@ impl Render for RoomManagerDialog {
                                         })),
                                 ),
                         )
-                        .when_some(self.applicable_seed(cx), |this, raw| {
+                        .when_some(self.operator_seed(cx), |this, raw| {
                             this.child(managed_seed_hint(&raw, cx))
                         }),
                 )
@@ -581,7 +627,9 @@ fn live_room(store: &AppStore) -> Option<String> {
 }
 
 /// Display form of a room name: `+name:xxxxxxxxxxxx` controlled rooms show as
-/// `name` plus a managed badge (the bool), plain rooms show as-is.
+/// `name` plus a managed badge (the bool), plain rooms show as-is. Operator
+/// bookmarks carry the control password (`+name:hash:password`); it stays out
+/// of the UI.
 pub(crate) fn display_room_name(room: &str) -> (&str, bool) {
     let Some(rest) = room.strip_prefix('+') else {
         return (room, false);
@@ -589,15 +637,43 @@ pub(crate) fn display_room_name(room: &str) -> (&str, bool) {
     let Some((name, suffix)) = rest.rsplit_once(':') else {
         return (room, false);
     };
-    if suffix.len() == 12
-        && suffix
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
+    if is_room_hash(suffix) {
+        return (name, true);
+    }
+    let Some((name, hash)) = name.rsplit_once(':') else {
+        return (room, false);
+    };
+    if is_room_hash(hash) {
         (name, true)
     } else {
         (room, false)
     }
+}
+
+fn is_room_hash(value: &str) -> bool {
+    value.len() == 12 && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Room identity ignoring any embedded control password, so an operator
+/// bookmark and the live room compare equal.
+pub(crate) fn room_identity(room: &str) -> String {
+    parse_controlled_room_input(room).0
+}
+
+/// Saved `+name:hash:password` bookmark covering `room`, if any — joining
+/// through it re-authenticates as operator.
+pub(crate) fn saved_operator_entry(config: &SyncplayConfig, room: &str) -> Option<String> {
+    let identity = room_identity(room);
+    config
+        .user
+        .room_list
+        .iter()
+        .find(|entry| {
+            entry.as_str() != room
+                && parse_controlled_room_input(entry).1.is_some()
+                && room_identity(entry) == identity
+        })
+        .cloned()
 }
 
 /// `+name:xxxxxxxxxxxx` controlled-room form back to `name` for the create
@@ -660,4 +736,62 @@ pub(crate) fn managed_seed_hint(raw: &str, cx: &App) -> impl IntoElement {
             (ElementId::from("copy-seed-code"), raw.to_string()),
             raw.to_string(),
         ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_room_name_strips_managed_hash() {
+        assert_eq!(display_room_name("+test:95D00F6E447B"), ("test", true));
+    }
+
+    #[test]
+    fn display_room_name_strips_operator_bookmark_password() {
+        assert_eq!(
+            display_room_name("+test:95D00F6E447B:AJ-107-331"),
+            ("test", true)
+        );
+    }
+
+    #[test]
+    fn display_room_name_keeps_plain_and_malformed_rooms() {
+        assert_eq!(display_room_name("test"), ("test", false));
+        assert_eq!(
+            display_room_name("+test:notahash"),
+            ("+test:notahash", false)
+        );
+        // A password-looking suffix without the hash is not the managed form.
+        assert_eq!(
+            display_room_name("+test:AJ-107-331"),
+            ("+test:AJ-107-331", false)
+        );
+    }
+
+    #[test]
+    fn room_identity_drops_only_the_password() {
+        assert_eq!(
+            room_identity("+test:95D00F6E447B:AJ-107-331"),
+            "+test:95D00F6E447B"
+        );
+        assert_eq!(room_identity("+test:95D00F6E447B"), "+test:95D00F6E447B");
+        assert_eq!(room_identity("test"), "test");
+    }
+
+    #[test]
+    fn saved_operator_entry_finds_the_password_bookmark() {
+        let mut config = SyncplayConfig::default();
+        config.user.room_list = vec![
+            "+test:95D00F6E447B".to_string(),
+            "+test:95D00F6E447B:AJ-107-331".to_string(),
+            "plain".to_string(),
+        ];
+        assert_eq!(
+            saved_operator_entry(&config, "+test:95D00F6E447B"),
+            Some("+test:95D00F6E447B:AJ-107-331".to_string())
+        );
+        assert_eq!(saved_operator_entry(&config, "plain"), None);
+        assert_eq!(saved_operator_entry(&config, "+other:95D00F6E447C"), None);
+    }
 }

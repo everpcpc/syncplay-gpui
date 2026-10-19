@@ -12,6 +12,7 @@ use syncplay_core::commands::playlist::PlaylistItemInfo;
 use syncplay_core::config::settings::PlayerConfig;
 use syncplay_core::config::SyncplayConfig;
 use syncplay_core::player::detection::{player_path_resolves, DetectedPlayer};
+use syncplay_core::utils::parse_controlled_room_input;
 
 use crate::events::{
     ChatMessageEvent, ConnectionStatusEvent, MediaIndexRefreshingEvent, MediaIndexUpdatedEvent,
@@ -499,6 +500,18 @@ impl AppStore {
                     .await;
             }
         });
+    }
+
+    /// True when joining `room` re-authenticates as operator: the bookmark
+    /// embeds the control password, or one is already known this session.
+    pub fn has_operator_credentials(&self, room: &str) -> bool {
+        let (room, password) = parse_controlled_room_input(room);
+        password.is_some()
+            || self
+                .core
+                .controlled_room_passwords
+                .lock()
+                .contains_key(&room)
     }
 
     pub fn update_playlist(

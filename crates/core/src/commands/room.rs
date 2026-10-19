@@ -19,8 +19,8 @@ pub async fn change_room(room: String, state: &Arc<AppState>) -> Result<(), Stri
         return Err("Not connected to server".to_string());
     }
     let (room, control_password) = parse_controlled_room_input(&room);
-    if let Some(password) = control_password {
-        store_control_password(state, &room, &password, true);
+    if let Some(password) = &control_password {
+        store_control_password(state, &room, password, true);
     }
 
     // Update client state
@@ -49,11 +49,24 @@ pub async fn change_room(room: String, state: &Arc<AppState>) -> Result<(), Stri
 
     let config = state.config.lock().clone();
     if config.user.autosave_joins_to_list {
+        let known_password =
+            control_password.or_else(|| state.controlled_room_passwords.lock().get(&room).cloned());
+        // Keep the password in the default room when known, so the next
+        // launch's prefilled join re-authenticates as operator.
+        let entry = match &known_password {
+            Some(password) => format!("{room}:{password}"),
+            None => room.clone(),
+        };
         let mut updated = config.clone();
-        if !updated.user.room_list.contains(&room) {
-            updated.user.room_list.push(room.clone());
+        let listed = updated
+            .user
+            .room_list
+            .iter()
+            .any(|existing| parse_controlled_room_input(existing).0 == room);
+        if !listed {
+            updated.user.room_list.push(entry.clone());
         }
-        updated.user.default_room = room.clone();
+        updated.user.default_room = entry;
         if let Err(e) = save_config(&updated) {
             tracing::warn!("Failed to save config after room change: {}", e);
         }
@@ -170,6 +183,10 @@ fn send_to_server(state: &Arc<AppState>, message: ProtocolMessage) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::connection::{connect_to_server_state, disconnect_from_server_state};
+    use crate::network::fake_server::FakeSyncplayServer;
+    use crate::player::backend::FakePlayerFactory;
+    use tokio::time::{sleep, timeout, Duration};
 
     #[test]
     fn generated_control_password_matches_reference_format() {
@@ -184,5 +201,73 @@ mod tests {
             assert_eq!(bytes[6], b'-');
             assert!(bytes[7..10].iter().all(u8::is_ascii_digit));
         }
+    }
+
+    #[tokio::test]
+    async fn change_room_autosave_keeps_single_operator_bookmark() {
+        let state = AppState::new();
+        *state.fake_player_factory.lock() = Some(Arc::new(FakePlayerFactory::default()));
+        *state.client_supports_tls.lock() = false;
+        let mut server = FakeSyncplayServer::start().await.unwrap();
+        connect_to_server_state(
+            server.host(),
+            server.port(),
+            "viewer".to_string(),
+            "lobby".to_string(),
+            None,
+            &state,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            timeout(Duration::from_secs(2), server.next_received())
+                .await
+                .unwrap()
+                .unwrap(),
+            ProtocolMessage::Hello { .. }
+        ));
+        server
+            .send(FakeSyncplayServer::hello_response("viewer", "lobby"))
+            .unwrap();
+        timeout(Duration::from_secs(2), async {
+            while !state.is_connected() {
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("login timed out");
+
+        change_room("+test:95D00F6E447B:AJ-107-331".to_string(), &state)
+            .await
+            .unwrap();
+        let config = state.config.lock().clone();
+        assert_eq!(
+            config.user.room_list,
+            vec![
+                "lobby".to_string(),
+                "+test:95D00F6E447B:AJ-107-331".to_string()
+            ]
+        );
+        assert_eq!(config.user.default_room, "+test:95D00F6E447B:AJ-107-331");
+        drop(config);
+
+        // Rejoining the plain form must not add a password-less duplicate,
+        // and the default room keeps the password known from this session.
+        change_room("+test:95D00F6E447B".to_string(), &state)
+            .await
+            .unwrap();
+        let config = state.config.lock().clone();
+        assert_eq!(
+            config.user.room_list,
+            vec![
+                "lobby".to_string(),
+                "+test:95D00F6E447B:AJ-107-331".to_string()
+            ]
+        );
+        assert_eq!(config.user.default_room, "+test:95D00F6E447B:AJ-107-331");
+        drop(config);
+
+        disconnect_from_server_state(&state).await.unwrap();
+        server.close();
     }
 }

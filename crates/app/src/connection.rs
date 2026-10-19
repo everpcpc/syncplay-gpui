@@ -12,8 +12,9 @@ use gpui_kit::{
 use rust_i18n::t;
 use syncplay_core::config::ServerConfig;
 use syncplay_core::player::detection::player_path_resolves;
+use syncplay_core::utils::parse_controlled_room_input;
 
-use crate::rooms::{display_room_name, managed_seed_hint};
+use crate::rooms::{display_room_name, managed_seed_hint, saved_operator_entry};
 use crate::settings::{open_settings_dialog_at, SettingsTab};
 use crate::store::{AppStore, ConnectParams, StoreEvent};
 
@@ -50,11 +51,16 @@ impl ConnectPanel {
             input.set_value(config.user.username.clone(), window, cx);
             input
         });
-        let (room_display, room_managed) = display_room_name(&config.user.default_room);
-        let room_seed_raw = room_managed.then_some(config.user.default_room.clone());
+        // Prefer the password-bearing bookmark as seed so the hinted join
+        // really re-authenticates as operator.
+        let room_seed = saved_operator_entry(&config, &config.user.default_room)
+            .unwrap_or_else(|| config.user.default_room.clone());
+        let (room_display, room_managed) = display_room_name(&room_seed);
+        let room_display = room_display.to_string();
+        let room_seed_raw = room_managed.then_some(room_seed);
         let room = cx.new(|cx| {
             let mut input = InputState::new(window, cx).placeholder("default");
-            input.set_value(room_display.to_string(), window, cx);
+            input.set_value(room_display, window, cx);
             input
         });
         let password = cx.new(|cx| {
@@ -272,6 +278,17 @@ impl ConnectPanel {
         (self.room.read(cx).value().trim() == display_room_name(raw).0).then(|| raw.clone())
     }
 
+    /// Seed whose join really ends up operator: the bookmark embeds the
+    /// control password, or one is already known this session. Only then is
+    /// the join-as-operator hint shown.
+    fn operator_seed(&self, cx: &App) -> Option<String> {
+        let raw = self.applicable_seed(cx)?;
+        self.store
+            .read(cx)
+            .has_operator_credentials(&raw)
+            .then_some(raw)
+    }
+
     /// Room the input refers to: the raw seed while the field still shows it
     /// (stripped), otherwise the text as typed.
     fn room_from_input(&self, cx: &App) -> String {
@@ -378,7 +395,7 @@ impl Render for ConnectPanel {
                                     v_flex()
                                         .gap_2()
                                         .child(self.render_room_input(cx))
-                                        .when_some(self.applicable_seed(cx), |this, raw| {
+                                        .when_some(self.operator_seed(cx), |this, raw| {
                                             this.child(managed_seed_hint(&raw, cx))
                                         }),
                                 ),
@@ -486,12 +503,27 @@ fn add_room_to_list(rooms: &[String], room: String) -> Vec<String> {
     if trimmed.is_empty() {
         return rooms.to_vec();
     }
+    let (identity, password) = parse_controlled_room_input(trimmed);
+    // A plain re-join must not demote a bookmark that still carries the
+    // operator password.
+    let entry = if password.is_none() {
+        rooms
+            .iter()
+            .find(|entry| {
+                let (existing, existing_password) = parse_controlled_room_input(entry);
+                existing == identity && existing_password.is_some()
+            })
+            .cloned()
+            .unwrap_or_else(|| trimmed.to_string())
+    } else {
+        trimmed.to_string()
+    };
     let mut next: Vec<String> = rooms
         .iter()
-        .filter(|entry| entry.as_str() != trimmed)
+        .filter(|entry| parse_controlled_room_input(entry).0 != identity)
         .cloned()
         .collect();
-    next.insert(0, trimmed.to_string());
+    next.insert(0, entry);
     next
 }
 
@@ -516,4 +548,38 @@ fn add_server_to_list(
     );
     next.truncate(10);
     next
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_room_to_list_dedupes_by_room_identity() {
+        let rooms = vec!["+test:95D00F6E447B".to_string(), "plain".to_string()];
+        let next = add_room_to_list(&rooms, "+test:95D00F6E447B:AJ-107-331".to_string());
+        assert_eq!(
+            next,
+            vec![
+                "+test:95D00F6E447B:AJ-107-331".to_string(),
+                "plain".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn add_room_to_list_plain_join_keeps_operator_bookmark() {
+        let rooms = vec!["+test:95D00F6E447B:AJ-107-331".to_string()];
+        let next = add_room_to_list(&rooms, "+test:95D00F6E447B".to_string());
+        assert_eq!(next, vec!["+test:95D00F6E447B:AJ-107-331".to_string()]);
+    }
+
+    #[test]
+    fn add_room_to_list_moves_plain_room_to_front() {
+        let rooms = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(
+            add_room_to_list(&rooms, "b".to_string()),
+            vec!["b".to_string(), "a".to_string()]
+        );
+    }
 }
