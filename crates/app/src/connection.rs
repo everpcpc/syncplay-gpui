@@ -25,9 +25,6 @@ pub struct ConnectPanel {
     room: Entity<InputState>,
     password: Entity<InputState>,
     error: Option<SharedString>,
-    /// (path, resolves) memo so renders don't re-stat the filesystem;
-    /// invalidated by the path string changing.
-    player_usable_cache: Option<(String, bool)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -100,24 +97,16 @@ impl ConnectPanel {
             room,
             password,
             error: None,
-            player_usable_cache: None,
             _subscriptions: subscriptions,
         }
     }
 
-    fn player_path_missing(&mut self, path: &str) -> bool {
+    fn player_path_missing(&self, path: &str) -> bool {
         let path = path.trim();
         if path.is_empty() || path == "custom" {
             return true;
         }
-        if let Some((cached, usable)) = &self.player_usable_cache {
-            if cached == path {
-                return !usable;
-            }
-        }
-        let usable = player_path_resolves(path);
-        self.player_usable_cache = Some((path.to_string(), usable));
-        !usable
+        !player_path_resolves(path)
     }
 
     fn connect(&mut self, cx: &mut Context<Self>) {
@@ -129,7 +118,7 @@ impl ConnectPanel {
         }
         let config = self.store.read(cx).config.clone();
         if self.player_path_missing(&config.player.player_path) {
-            self.error = Some(t!("conn.player_required").into());
+            self.error = Some(t!("conn.player_warning").into());
             cx.notify();
             return;
         }
@@ -222,7 +211,7 @@ impl ConnectPanel {
         Input::new(&self.address).suffix(presets)
     }
 
-    fn render_player_hint(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_player_hint(&self, show_change: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let store = self.store.read(cx);
         let path = store.config.player.player_path.trim().to_string();
         let name = store
@@ -248,16 +237,23 @@ impl ConnectPanel {
                     .text_color(cx.theme().muted_foreground)
                     .child(t!("conn.player_using", player = player).to_string()),
             )
-            .child(
-                Button::new("change-player")
-                    .ghost()
-                    .xsmall()
-                    .flex_shrink_0()
-                    .label(t!("conn.change_player"))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        open_settings_dialog_at(window, cx, this.store.clone(), SettingsTab::Player)
-                    })),
-            )
+            .when(show_change, |this| {
+                this.child(
+                    Button::new("change-player")
+                        .ghost()
+                        .xsmall()
+                        .flex_shrink_0()
+                        .label(t!("conn.change_player"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            open_settings_dialog_at(
+                                window,
+                                cx,
+                                this.store.clone(),
+                                SettingsTab::Player,
+                            )
+                        })),
+                )
+            })
     }
 
     fn render_room_input(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -356,7 +352,7 @@ impl Render for ConnectPanel {
                             ),
                     )
                     .when(player_configured, |this| {
-                        this.child(self.render_player_hint(cx))
+                        this.child(self.render_player_hint(!player_missing, cx))
                     })
                     .when(player_missing, |this| {
                         this.child(

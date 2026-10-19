@@ -219,12 +219,6 @@ conn:
     zh-TW: 使用者名稱不能為空
     ja: ユーザー名は必須です
     fr: "Le nom d’utilisateur est requis"
-  player_required:
-    en: Select a media player in Settings before connecting.
-    zh-CN: 请先在设置中选择媒体播放器再连接。
-    zh-TW: 請先在設定中選擇媒體播放器再連線。
-    ja: 接続する前に設定でメディアプレイヤーを選択してください。
-    fr: "Sélectionnez un lecteur multimédia dans les paramètres avant de vous connecter."
   address_invalid:
     en: Address must be in host:port format
     zh-CN: 地址必须是 host:port 格式
