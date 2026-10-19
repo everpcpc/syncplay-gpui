@@ -253,6 +253,12 @@ impl RoomManagerDialog {
                     .gap_2()
                     .child(self.render_section_label(t!("rooms.create_managed").into(), cx))
                     .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t!("rooms.create_managed_desc")),
+                    )
+                    .child(
                         h_flex()
                             .gap_2()
                             .child(div().flex_1().child(Input::new(&self.managed_room_name)))
@@ -270,6 +276,12 @@ impl RoomManagerDialog {
                 v_flex()
                     .gap_2()
                     .child(self.render_section_label(t!("rooms.auth_operator").into(), cx))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(t!("rooms.auth_operator_desc")),
+                    )
                     .child(
                         h_flex()
                             .gap_2()
