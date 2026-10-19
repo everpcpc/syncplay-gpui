@@ -10,7 +10,8 @@ use gpui_kit::{
     IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window,
 };
 use rust_i18n::t;
-use syncplay_core::config::{ServerConfig, SyncplayConfig};
+use syncplay_core::config::ServerConfig;
+use syncplay_core::player::detection::player_path_resolves;
 
 use crate::settings::{open_settings_dialog_at, SettingsTab};
 use crate::store::{AppStore, ConnectParams, StoreEvent};
@@ -100,6 +101,14 @@ impl ConnectPanel {
         }
     }
 
+    fn player_path_missing(&self, path: &str) -> bool {
+        let path = path.trim();
+        if path.is_empty() || path == "custom" {
+            return true;
+        }
+        !player_path_resolves(path)
+    }
+
     fn connect(&mut self, cx: &mut Context<Self>) {
         let username = self.username.read(cx).value().trim().to_string();
         if username.is_empty() {
@@ -108,8 +117,8 @@ impl ConnectPanel {
             return;
         }
         let config = self.store.read(cx).config.clone();
-        if player_selection_missing(&config) {
-            self.error = Some(t!("conn.player_required").into());
+        if self.player_path_missing(&config.player.player_path) {
+            self.error = Some(t!("conn.player_warning").into());
             cx.notify();
             return;
         }
@@ -202,6 +211,51 @@ impl ConnectPanel {
         Input::new(&self.address).suffix(presets)
     }
 
+    fn render_player_hint(&self, show_change: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let store = self.store.read(cx);
+        let path = store.config.player.player_path.trim().to_string();
+        let name = store
+            .detected_players
+            .iter()
+            .find(|player| player.path == path)
+            .map(|player| player.name.clone());
+        let player = match name {
+            Some(name) => format!("{} — {}", name, path),
+            None => path,
+        };
+        h_flex()
+            .w_full()
+            .gap_2()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(t!("conn.player_using", player = player).to_string()),
+            )
+            .when(show_change, |this| {
+                this.child(
+                    Button::new("change-player")
+                        .ghost()
+                        .xsmall()
+                        .flex_shrink_0()
+                        .label(t!("conn.change_player"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            open_settings_dialog_at(
+                                window,
+                                cx,
+                                this.store.clone(),
+                                SettingsTab::Player,
+                            )
+                        })),
+                )
+            })
+    }
+
     fn render_room_input(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rooms = self.store.read(cx).config.user.room_list.clone();
         let room = self.room.clone();
@@ -229,12 +283,17 @@ impl ConnectPanel {
 
 impl Render for ConnectPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let (connecting, player_missing) = {
+        let (connecting, player_path) = {
             let store = self.store.read(cx);
             (
                 store.connect_pending,
-                player_selection_missing(&store.config),
+                store.config.player.player_path.clone(),
             )
+        };
+        let player_missing = self.player_path_missing(&player_path);
+        let player_configured = {
+            let path = player_path.trim();
+            !path.is_empty() && path != "custom"
         };
 
         v_flex()
@@ -292,6 +351,9 @@ impl Render for ConnectPanel {
                                     .child(Input::new(&self.password)),
                             ),
                     )
+                    .when(player_configured, |this| {
+                        this.child(self.render_player_hint(!player_missing, cx))
+                    })
                     .when(player_missing, |this| {
                         this.child(
                             h_flex()
@@ -368,11 +430,6 @@ impl Render for ConnectPanel {
                     ),
             )
     }
-}
-
-fn player_selection_missing(config: &SyncplayConfig) -> bool {
-    let path = config.player.player_path.trim();
-    path.is_empty() || path == "custom"
 }
 
 fn parse_address(address: &str) -> Option<(String, u16)> {
