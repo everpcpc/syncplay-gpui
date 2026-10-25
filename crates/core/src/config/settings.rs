@@ -167,6 +167,8 @@ pub struct PlayerConfig {
     #[serde(default)]
     pub player_path: String,
     pub media_directories: Vec<String>,
+    #[serde(default)]
+    pub last_add_directory: Option<String>,
     #[serde(default = "default_media_index_timeout_seconds")]
     pub media_index_timeout_seconds: u64,
     #[serde(default)]
@@ -180,6 +182,7 @@ impl Default for PlayerConfig {
         Self {
             player_path: "mpv".to_string(),
             media_directories: Vec::new(),
+            last_add_directory: None,
             media_index_timeout_seconds: default_media_index_timeout_seconds(),
             player_arguments: Vec::new(),
             per_player_arguments: HashMap::new(),
