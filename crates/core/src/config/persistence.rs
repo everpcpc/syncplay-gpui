@@ -130,6 +130,7 @@ mod tests {
         config.user.username = "testuser".to_string();
         config.server.host = "example.com".to_string();
         config.server.port = 9000;
+        config.player.last_add_directory = Some("/media/shows".to_string());
 
         save_config_to(&path, &config).unwrap();
         let loaded = load_config_from(&path).unwrap();
@@ -137,6 +138,10 @@ mod tests {
         assert_eq!(loaded.server.host, "example.com");
         assert_eq!(loaded.server.port, 9000);
         assert_eq!(loaded.user.username, "testuser");
+        assert_eq!(
+            loaded.player.last_add_directory.as_deref(),
+            Some("/media/shows")
+        );
     }
 
     #[test]

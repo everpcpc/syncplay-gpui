@@ -64,6 +64,7 @@ impl Render for PlaylistDragGhost {
             .border_1()
             .border_color(cx.theme().info)
             .bg(cx.theme().popover.opacity(0.94))
+            .text_color(cx.theme().popover_foreground)
             .px_2()
             .py_2()
             .text_sm()
@@ -78,8 +79,6 @@ pub struct PlaylistPanel {
     /// Focus target for dropdown-menu action dispatch; the panel root tracks
     /// it so menu items reach the `on_action` handlers there.
     menu_focus: FocusHandle,
-    /// Fallback directory for the next add-file picker; the web client keeps
-    /// this in localStorage, in-memory covers the same session habit.
     last_add_directory: Option<String>,
     file_picker_open: bool,
     hovered_row: Option<usize>,
@@ -143,9 +142,15 @@ impl PlaylistPanel {
         if self.file_picker_open {
             return;
         }
-        let (connected, media_directories) = {
+        let (connected, media_directories, default_directory) = {
             let store = self.store.read(cx);
-            (store.is_connected(), media_directories(&store.config))
+            let directories = media_directories(&store.config);
+            let default_directory = add_file_starting_directory(
+                self.last_add_directory.as_deref(),
+                store.config.player.last_add_directory.as_deref(),
+                &directories,
+            );
+            (store.is_connected(), directories, default_directory)
         };
         if !connected {
             return;
@@ -160,11 +165,6 @@ impl PlaylistPanel {
             );
             return;
         }
-        let default_directory = self
-            .last_add_directory
-            .clone()
-            .filter(|dir| media_directories.iter().any(|d| is_path_inside(dir, d)))
-            .or_else(|| media_directories.first().cloned());
 
         self.file_picker_open = true;
         cx.notify();
@@ -207,7 +207,13 @@ impl PlaylistPanel {
         self.store
             .read(cx)
             .update_playlist("add", Some(path.clone()), None);
-        self.last_add_directory = parent_directory(&path);
+        let directory = parent_directory(&path);
+        if self.last_add_directory != directory {
+            self.last_add_directory = directory.clone();
+            self.update_config(cx, move |config| {
+                config.player.last_add_directory = directory;
+            });
+        }
     }
 
     fn play_item(&self, index: usize, cx: &mut Context<Self>) {
@@ -814,6 +820,18 @@ fn media_directories(config: &SyncplayConfig) -> Vec<String> {
         .collect()
 }
 
+fn add_file_starting_directory(
+    recent_directory: Option<&str>,
+    saved_directory: Option<&str>,
+    media_directories: &[String],
+) -> Option<String> {
+    recent_directory
+        .or(saved_directory)
+        .filter(|dir| media_directories.iter().any(|d| is_path_inside(dir, d)))
+        .map(str::to_string)
+        .or_else(|| media_directories.first().cloned())
+}
+
 fn normalize_path(path: &str) -> String {
     path.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
@@ -1343,5 +1361,44 @@ impl Render for TrustedDomainsDialog {
                             .into_any_element()
                     })),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::add_file_starting_directory;
+
+    fn directories() -> Vec<String> {
+        vec!["/media/first".to_string(), "/media/second".to_string()]
+    }
+
+    #[test]
+    fn add_file_picker_uses_saved_directory_after_restart() {
+        assert_eq!(
+            add_file_starting_directory(None, Some("/media/second/show"), &directories())
+                .as_deref(),
+            Some("/media/second/show")
+        );
+    }
+
+    #[test]
+    fn add_file_picker_prefers_recent_directory_over_saved() {
+        assert_eq!(
+            add_file_starting_directory(
+                Some("/media/first/movies"),
+                Some("/media/second/show"),
+                &directories(),
+            )
+            .as_deref(),
+            Some("/media/first/movies")
+        );
+    }
+
+    #[test]
+    fn add_file_picker_falls_back_when_saved_directory_was_removed() {
+        assert_eq!(
+            add_file_starting_directory(None, Some("/removed/show"), &directories()).as_deref(),
+            Some("/media/first")
+        );
     }
 }
