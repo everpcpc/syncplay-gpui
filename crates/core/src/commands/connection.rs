@@ -1959,7 +1959,7 @@ pub(crate) fn store_control_password(
         return;
     }
     let config = state.config.lock().clone();
-    if !config.user.autosave_joins_to_list {
+    if !state.config_persistence_enabled() || !config.user.autosave_joins_to_list {
         return;
     }
     let room_entry = format!("{}:{}", room, password);
@@ -2658,7 +2658,7 @@ fn maybe_autosave_connection(
     config: &crate::config::SyncplayConfig,
     snapshot: ConnectionSnapshot,
 ) {
-    if !config.user.autosave_joins_to_list {
+    if !state.config_persistence_enabled() || !config.user.autosave_joins_to_list {
         return;
     }
 

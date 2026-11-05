@@ -4,6 +4,7 @@
 )]
 
 mod chat;
+mod cli;
 mod connection;
 mod events;
 mod i18n;
@@ -19,19 +20,29 @@ mod users;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use gpui_kit::component::TitleBar;
 use gpui_kit::{px, size, AppContext as _, WindowBounds};
 use syncplay_core::app_state::AppState;
 use syncplay_core::config::load_config;
+use syncplay_core::config::load_config_with_default_persistence;
 use syncplay_core::player::controller::spawn_player_state_loop;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::root::RootView;
 use crate::store::{apply_theme, AppStore, UiEvent};
 
-fn main() {
+fn main() -> ExitCode {
+    let launch = match cli::parse_env() {
+        Ok(cli::ParseOutcome::Launch(launch)) => launch,
+        Ok(cli::ParseOutcome::Exit(code)) => return code,
+        Err(error) => {
+            eprintln!("{error}\n\nTry 'syncplay --help' for usage.");
+            return ExitCode::FAILURE;
+        }
+    };
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -57,10 +68,17 @@ fn main() {
     // `load_config` persists defaults on first run, so the onboarding check
     // must read the store before it.
     let first_run = !syncplay_core::config::has_saved_config();
-    let config = load_config().unwrap_or_else(|error| {
+    let mut config = if launch.no_store() {
+        load_config_with_default_persistence(false)
+    } else {
+        load_config()
+    }
+    .unwrap_or_else(|error| {
         tracing::error!("Failed to load config: {error}");
         syncplay_core::config::SyncplayConfig::default()
     });
+    launch.apply(&mut config);
+    core.set_config_persistence(!launch.no_store());
     *core.config.lock() = config.clone();
     core.sync_engine.lock().update_from_config(&config.user);
     core.media_index.update_settings(
@@ -120,7 +138,7 @@ fn main() {
                         cx,
                     )
                 });
-                cx.new(|cx| RootView::new(store, window, cx, first_run))
+                cx.new(|cx| RootView::new(store, window, cx, first_run, launch.clone()))
             })
             .expect("failed to open window");
 
@@ -158,4 +176,5 @@ fn main() {
             })
             .detach();
         });
+    ExitCode::SUCCESS
 }

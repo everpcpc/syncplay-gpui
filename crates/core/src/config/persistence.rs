@@ -38,7 +38,12 @@ fn config_dir() -> Result<PathBuf> {
 
 /// Load configuration from the store
 pub fn load_config() -> Result<SyncplayConfig> {
-    load_config_from(&get_config_path()?)
+    load_config_with_default_persistence(true)
+}
+
+/// Load settings, optionally avoiding the default-config write on first run.
+pub fn load_config_with_default_persistence(persist_defaults: bool) -> Result<SyncplayConfig> {
+    load_config_from_with_default_persistence(&get_config_path()?, persist_defaults)
 }
 
 /// Save configuration to the store
@@ -62,7 +67,15 @@ pub(crate) fn has_saved_config_at(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 pub(crate) fn load_config_from(path: &Path) -> Result<SyncplayConfig> {
+    load_config_from_with_default_persistence(path, true)
+}
+
+fn load_config_from_with_default_persistence(
+    path: &Path,
+    persist_defaults: bool,
+) -> Result<SyncplayConfig> {
     let store = read_store(path)?;
     if let Some(value) = store.get(CONFIG_KEY) {
         if let Ok(config) = serde_json::from_value::<SyncplayConfig>(value.clone()) {
@@ -72,7 +85,9 @@ pub(crate) fn load_config_from(path: &Path) -> Result<SyncplayConfig> {
     }
 
     let config = SyncplayConfig::default();
-    save_config_to(path, &config)?;
+    if persist_defaults {
+        save_config_to(path, &config)?;
+    }
     Ok(config)
 }
 

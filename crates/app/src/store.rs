@@ -404,6 +404,16 @@ impl AppStore {
         save_config: Option<SyncplayConfig>,
         cx: &mut Context<Self>,
     ) {
+        self.connect_with_media(params, save_config, None, cx);
+    }
+
+    pub fn connect_with_media(
+        &mut self,
+        params: ConnectParams,
+        save_config: Option<SyncplayConfig>,
+        initial_media: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.connect_pending = true;
         self.connect_result = None;
         cx.notify();
@@ -430,6 +440,15 @@ impl AppStore {
             )
             .await
             .map(|_| label);
+            if result.is_ok() {
+                if let Some(media) = initial_media {
+                    if let Err(error) = open_initial_media(&core, media).await {
+                        let _ = ui_tx
+                            .send(UiEvent::CommandFailed("open_initial_media", error))
+                            .await;
+                    }
+                }
+            }
             let _ = ui_tx.send(UiEvent::ConnectFinished(result)).await;
         });
     }
@@ -736,6 +755,21 @@ impl AppStore {
     pub fn restart_for_update(&self) {
         crate::updater::restart_app();
     }
+}
+
+async fn open_initial_media(core: &Arc<AppState>, media: String) -> Result<(), String> {
+    // TCP/TLS establishment can finish just before the server Hello. Playlist
+    // changes require the authenticated session, so wait briefly for it.
+    for _ in 0..400 {
+        if core.is_connected() {
+            return commands::playlist::open_media(core, media).await;
+        }
+        if core.connection.lock().is_none() {
+            return Err("Connection closed before initial media could be opened".to_string());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    Err("Timed out waiting for the server before opening initial media".to_string())
 }
 
 pub fn apply_theme(theme: &str, window: Option<&mut Window>, cx: &mut gpui_kit::App) {

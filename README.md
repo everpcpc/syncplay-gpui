@@ -81,6 +81,28 @@ Cargo workspace with two crates:
 
 This client is compatible with Syncplay protocol version 1.7.x and can connect to official Syncplay servers.
 
+## External Launchers
+
+Applications can pass media and player arguments using the standard Syncplay
+command-line form. For example, `ani-cli -s` launches this client with a stream
+URL and mpv options:
+
+```bash
+syncplay "https://example.com/video.m3u8" -- \
+  --referrer="https://example.com/" --force-media-title="Episode 1"
+```
+
+The saved server, room, username, and player settings are used to connect
+automatically. Arguments after `--` are passed to the player without shell
+re-parsing, so audio, subtitle, and title options are preserved. These
+launch-specific overrides are not saved. Run `syncplay --help` for connection
+and player overrides.
+
+The Windows installer adds its installation directory to the current user's
+`PATH`; start a new terminal after installation so `ani-cli` can find
+`syncplay.exe`. The macOS app uses the same executable path as the official
+client: `/Applications/Syncplay.app/Contents/MacOS/syncplay`.
+
 ## Known Limitations
 
 - **CJK input in mpv's chat line (macOS)**: mpv implements IME text input (`input-ime`) only on Windows and Wayland, so the chat line opened with Enter inside mpv cannot use system input methods on macOS. Use the app's built-in chat box instead.

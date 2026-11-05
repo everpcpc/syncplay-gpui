@@ -11,6 +11,68 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(test)]
+use std::time::Duration;
+
+/// Open media supplied by an external launcher through the same playlist
+/// coordination used by the UI. This lets an established room playlist win
+/// when appropriate instead of unconditionally replacing its selection.
+pub async fn open_media(state: &Arc<AppState>, target: String) -> Result<(), String> {
+    let (target, override_path) = normalize_playlist_entry(&target);
+    if is_url(&target) {
+        state.user_initiated_urls.lock().insert(target.clone());
+    }
+    if let Some(path) = override_path {
+        state.media_index.add_override_path(&target, path);
+    }
+    let config = state.config.lock().clone();
+    let publish = shared_playlists_enabled(state, &config) && state.is_connected();
+    let selection_target = target.clone();
+    let added = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let added_in_edit = added.clone();
+    let edit = playback_runtime::edit_playlist_and_publish(
+        state,
+        false,
+        move |items, _| {
+            if !items.contains(&selection_target) {
+                items.push(selection_target.clone());
+                added_in_edit.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(())
+        },
+        |result| {
+            if publish && added.load(std::sync::atomic::Ordering::Relaxed) {
+                send_to_server(
+                    state,
+                    ProtocolMessage::Set {
+                        Set: Box::new(SetMessage {
+                            room: None,
+                            file: None,
+                            user: None,
+                            ready: None,
+                            playlist_index: None,
+                            playlist_change: Some(PlaylistChange {
+                                user: None,
+                                files: result.items.clone(),
+                            }),
+                            controller_auth: None,
+                            new_controlled_room: None,
+                            features: None,
+                        }),
+                    },
+                )?;
+            }
+            Ok(())
+        },
+    )
+    .await?;
+    let index = edit
+        .items
+        .iter()
+        .position(|item| item == &target)
+        .ok_or_else(|| "Requested media was not added to the playlist".to_string())?;
+    playback_runtime::local_select(state, index, true).await
+}
 
 pub async fn update_playlist(
     action: String,
@@ -301,6 +363,7 @@ mod tests {
     use super::*;
     use crate::network::connection::Connection;
     use crate::network::fake_server::FakeSyncplayServer;
+    use crate::player::backend::{FakePlayerCommand, FakePlayerFactory};
 
     async fn fixture() -> (Arc<AppState>, FakeSyncplayServer) {
         let state = AppState::new();
@@ -319,6 +382,46 @@ mod tests {
         .await
         .unwrap();
         (state, server)
+    }
+
+    #[tokio::test]
+    async fn explicitly_opened_stream_loads_despite_domain_switch_restrictions() {
+        let state = AppState::new();
+        let factory = Arc::new(FakePlayerFactory::default());
+        *state.fake_player_factory.lock() = Some(factory.clone());
+        let server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        connection.set_authenticated();
+        *state.connection.lock() = Some(connection);
+        let target = "https://media.example.test/episode.m3u8".to_string();
+
+        open_media(&state, target.clone()).await.unwrap();
+        // A non-shared local selection is announced first; its server echo is
+        // what authorizes the coordinated media load.
+        playback_runtime::server_playlist_and_index(&state, None, Some((Some(0), true)))
+            .await
+            .unwrap();
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let players = factory.players();
+                if players.iter().any(|player| {
+                    player.commands().iter().any(|command| {
+                        matches!(command, FakePlayerCommand::LoadFile(path) if path == &target)
+                    })
+                }) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        server.close();
     }
 
     #[tokio::test]

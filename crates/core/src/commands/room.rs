@@ -48,7 +48,7 @@ pub async fn change_room(room: String, state: &Arc<AppState>) -> Result<(), Stri
     reidentify_as_controller(state);
 
     let config = state.config.lock().clone();
-    if config.user.autosave_joins_to_list {
+    if state.config_persistence_enabled() && config.user.autosave_joins_to_list {
         let known_password =
             control_password.or_else(|| state.controlled_room_passwords.lock().get(&room).cloned());
         // Keep the password in the default room when known, so the next

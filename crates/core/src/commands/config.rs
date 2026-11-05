@@ -20,11 +20,12 @@ pub async fn update_config(config: SyncplayConfig, state: &Arc<AppState>) -> Res
         e
     })?;
 
-    // Save config
-    save_config(&config).map_err(|e| {
-        tracing::error!("Failed to save config: {}", e);
-        format!("Failed to save configuration: {}", e)
-    })?;
+    if state.config_persistence_enabled() {
+        save_config(&config).map_err(|e| {
+            tracing::error!("Failed to save config: {}", e);
+            format!("Failed to save configuration: {}", e)
+        })?;
+    }
 
     *state.config.lock() = config.clone();
     state.sync_engine.lock().update_from_config(&config.user);

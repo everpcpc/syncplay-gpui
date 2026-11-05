@@ -903,7 +903,7 @@ pub(crate) async fn load_media_by_name(
             &config.user.trusted_domains,
             config.user.only_switch_to_trusted_domains,
         );
-        if !trustable || !trusted {
+        if !trustable || (!trusted && !state.user_initiated_urls.lock().contains(filename)) {
             return Err(LoadMediaError::Failed("URL is not trusted".to_string()));
         }
         (filename.to_string(), true)
