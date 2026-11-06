@@ -55,14 +55,27 @@ pub fn save_config(config: &SyncplayConfig) -> Result<()> {
 /// `load_config`: a first run writes defaults to disk, erasing the
 /// distinction the onboarding wizard keys on.
 pub fn has_saved_config() -> bool {
+    has_saved_config_with_options(true)
+}
+
+pub fn has_saved_config_read_only() -> bool {
+    has_saved_config_with_options(false)
+}
+
+fn has_saved_config_with_options(quarantine_invalid: bool) -> bool {
     match get_config_path() {
-        Ok(path) => has_saved_config_at(&path),
+        Ok(path) => has_saved_config_at_with_options(&path, quarantine_invalid),
         Err(_) => false,
     }
 }
 
+#[cfg(test)]
 pub(crate) fn has_saved_config_at(path: &Path) -> bool {
-    read_store(path)
+    has_saved_config_at_with_options(path, true)
+}
+
+fn has_saved_config_at_with_options(path: &Path, quarantine_invalid: bool) -> bool {
+    read_store(path, quarantine_invalid)
         .map(|store| store.contains_key(CONFIG_KEY))
         .unwrap_or(false)
 }
@@ -76,7 +89,7 @@ fn load_config_from_with_default_persistence(
     path: &Path,
     persist_defaults: bool,
 ) -> Result<SyncplayConfig> {
-    let store = read_store(path)?;
+    let store = read_store(path, persist_defaults)?;
     if let Some(value) = store.get(CONFIG_KEY) {
         if let Ok(config) = serde_json::from_value::<SyncplayConfig>(value.clone()) {
             return Ok(config);
@@ -93,12 +106,12 @@ fn load_config_from_with_default_persistence(
 
 pub(crate) fn save_config_to(path: &Path, config: &SyncplayConfig) -> Result<()> {
     let value = serde_json::to_value(config).context("Failed to serialize config")?;
-    let mut store = read_store(path)?;
+    let mut store = read_store(path, true)?;
     store.insert(CONFIG_KEY.to_string(), value);
     write_store(path, &store)
 }
 
-fn read_store(path: &Path) -> Result<Map<String, Value>> {
+fn read_store(path: &Path, quarantine_invalid: bool) -> Result<Map<String, Value>> {
     let contents = match std::fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
@@ -109,7 +122,9 @@ fn read_store(path: &Path) -> Result<Map<String, Value>> {
         // An unparseable store would otherwise fail every later save and trip
         // the first-run check on each launch; quarantine it and start clean.
         Err(_) => {
-            let _ = std::fs::rename(path, path.with_extension("json.bak"));
+            if quarantine_invalid {
+                let _ = std::fs::rename(path, path.with_extension("json.bak"));
+            }
             return Ok(Map::new());
         }
     };
@@ -216,6 +231,18 @@ mod tests {
         // The corrupt file is quarantined and later loads keep working.
         assert!(path.with_extension("json.bak").exists());
         assert!(load_config_from(&path).is_ok());
+    }
+
+    #[test]
+    fn read_only_config_checks_do_not_quarantine_invalid_json() {
+        let (_dir, path) = temp_store_path();
+        std::fs::write(&path, "not json").unwrap();
+
+        assert!(!has_saved_config_at_with_options(&path, false));
+        load_config_from_with_default_persistence(&path, false).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not json");
+        assert!(!path.with_extension("json.bak").exists());
     }
 
     #[test]

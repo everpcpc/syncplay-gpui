@@ -144,6 +144,9 @@ impl ConnectPanel {
             cx.notify();
             return;
         };
+        let initial_media = self
+            .store
+            .update(cx, |store, _| store.take_pending_initial_media());
         self.error = None;
 
         let room = self.room_from_input(cx);
@@ -170,7 +173,7 @@ impl ConnectPanel {
         save.user.room_list = add_room_to_list(&save.user.room_list, room.clone());
 
         self.store.update(cx, |store, cx| {
-            store.connect(
+            store.connect_with_media(
                 ConnectParams {
                     host,
                     port,
@@ -179,6 +182,7 @@ impl ConnectPanel {
                     password,
                 },
                 Some(save),
+                initial_media,
                 cx,
             );
         });

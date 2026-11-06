@@ -1,5 +1,5 @@
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -50,8 +50,8 @@ pub struct AppState {
     pub sync_engine: Arc<Mutex<SyncEngine>>,
     /// Cached configuration
     pub config: Arc<Mutex<SyncplayConfig>>,
-    /// URLs explicitly supplied by the user, rather than selected by a peer.
-    pub user_initiated_urls: Arc<Mutex<HashSet<String>>>,
+    /// One-shot authorization for a URL explicitly opened by the local user.
+    pub user_initiated_url: Arc<Mutex<Option<String>>>,
     /// External launches use temporary connection and player overrides.
     pub persist_config: AtomicBool,
     /// Last hello payload (for TLS re-handshake)
@@ -129,6 +129,14 @@ pub struct AppState {
     pub room_warning_task_running: Arc<Mutex<bool>>,
     /// Media index cache
     pub media_index: Arc<MediaIndex>,
+    /// Initial external media waiting for the room's first playlist snapshot.
+    pub pending_initial_media: Arc<Mutex<Option<PendingInitialMedia>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingInitialMedia {
+    pub target: String,
+    pub connection_generation: u64,
 }
 
 #[derive(Debug, Default)]
@@ -181,7 +189,7 @@ impl AppState {
             chat: ChatManager::new(),
             sync_engine: Arc::new(Mutex::new(SyncEngine::new())),
             config: Arc::new(Mutex::new(SyncplayConfig::default())),
-            user_initiated_urls: Arc::new(Mutex::new(HashSet::new())),
+            user_initiated_url: Arc::new(Mutex::new(None)),
             persist_config: AtomicBool::new(true),
             last_hello: Arc::new(Mutex::new(None)),
             hello_sent: Arc::new(Mutex::new(false)),
@@ -221,6 +229,7 @@ impl AppState {
             room_warning_state: Arc::new(Mutex::new(RoomWarningState::default())),
             room_warning_task_running: Arc::new(Mutex::new(false)),
             media_index: MediaIndex::new(),
+            pending_initial_media: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -290,7 +299,7 @@ impl Default for AppState {
             chat: ChatManager::new(),
             sync_engine: Arc::new(Mutex::new(SyncEngine::new())),
             config: Arc::new(Mutex::new(SyncplayConfig::default())),
-            user_initiated_urls: Arc::new(Mutex::new(HashSet::new())),
+            user_initiated_url: Arc::new(Mutex::new(None)),
             persist_config: AtomicBool::new(true),
             last_hello: Arc::new(Mutex::new(None)),
             hello_sent: Arc::new(Mutex::new(false)),
@@ -330,6 +339,7 @@ impl Default for AppState {
             room_warning_state: Arc::new(Mutex::new(RoomWarningState::default())),
             room_warning_task_running: Arc::new(Mutex::new(false)),
             media_index: MediaIndex::new(),
+            pending_initial_media: Arc::new(Mutex::new(None)),
         }
     }
 }

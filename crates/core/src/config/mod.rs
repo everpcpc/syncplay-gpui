@@ -3,8 +3,8 @@ pub mod persistence;
 pub mod settings;
 
 pub use persistence::{
-    get_config_path, has_saved_config, load_config, load_config_with_default_persistence,
-    save_config,
+    get_config_path, has_saved_config, has_saved_config_read_only, load_config,
+    load_config_with_default_persistence, save_config,
 };
 pub use settings::{
     ChatInputPosition, ChatOutputMode, PrivacyMode, ServerConfig, SyncplayConfig, UnpauseAction,

@@ -46,6 +46,9 @@ impl RootView {
         first_run: bool,
         launch: LaunchOptions,
     ) -> Self {
+        store.update(cx, |store, _| {
+            store.defer_initial_media(launch.media.clone())
+        });
         let chat = cx.new(|cx| ChatPanel::new(store.clone(), window, cx));
         let user_list = cx.new(|cx| UserListPanel::new(store.clone(), window, cx));
         let playlist = cx.new(|cx| PlaylistPanel::new(store.clone(), window, cx));
@@ -113,6 +116,7 @@ impl RootView {
         }
         let config = self.store.read(cx).config.clone();
         let should_connect = self.launch.should_autoconnect() || config.user.auto_connect;
+        let should_connect = should_connect && !self.launch.deferred;
         if should_connect
             && !config.user.username.trim().is_empty()
             && !self.store.read(cx).is_connected()

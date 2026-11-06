@@ -67,7 +67,11 @@ fn main() -> ExitCode {
     let core = AppState::new();
     // `load_config` persists defaults on first run, so the onboarding check
     // must read the store before it.
-    let first_run = !syncplay_core::config::has_saved_config();
+    let first_run = if launch.no_store() {
+        !syncplay_core::config::has_saved_config_read_only()
+    } else {
+        !syncplay_core::config::has_saved_config()
+    };
     let mut config = if launch.no_store() {
         load_config_with_default_persistence(false)
     } else {
@@ -78,6 +82,14 @@ fn main() -> ExitCode {
         syncplay_core::config::SyncplayConfig::default()
     });
     launch.apply(&mut config);
+    let launch = if first_run && config.user.username.trim().is_empty() && launch.media.is_some() {
+        cli::LaunchOptions {
+            deferred: true,
+            ..launch
+        }
+    } else {
+        launch
+    };
     core.set_config_persistence(!launch.no_store());
     *core.config.lock() = config.clone();
     core.sync_engine.lock().update_from_config(&config.user);

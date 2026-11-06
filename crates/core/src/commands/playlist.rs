@@ -1,6 +1,6 @@
 // Playlist command handlers
 
-use crate::app_state::AppState;
+use crate::app_state::{AppState, PendingInitialMedia};
 use crate::client::playback_runtime;
 use crate::config::SyncplayConfig;
 use crate::network::messages::{PlayState, StateMessage};
@@ -14,34 +14,86 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::time::Duration;
 
-/// Open media supplied by an external launcher through the same playlist
-/// coordination used by the UI. This lets an established room playlist win
-/// when appropriate instead of unconditionally replacing its selection.
-pub async fn open_media(state: &Arc<AppState>, target: String) -> Result<(), String> {
+pub fn queue_initial_media(state: &Arc<AppState>, target: String) {
+    *state.pending_initial_media.lock() = Some(PendingInitialMedia {
+        target,
+        connection_generation: state
+            .connection_session_generation
+            .load(std::sync::atomic::Ordering::Acquire),
+    });
+}
+
+pub(crate) async fn open_initial_media_if_ready(state: &Arc<AppState>) {
+    let pending = state.pending_initial_media.lock().clone();
+    let Some(pending) = pending else {
+        return;
+    };
+    let shared_playlist = {
+        let config = state.config.lock().clone();
+        shared_playlists_enabled(state, &config)
+    };
+    let ready = {
+        let playback = state.playback.state.lock();
+        !shared_playlist || playback.received_server_index || playback.room_playlist_received
+    };
+    if !state.is_connected()
+        || state
+            .connection_session_generation
+            .load(std::sync::atomic::Ordering::Acquire)
+            != pending.connection_generation
+        || !ready
+    {
+        return;
+    }
+    state.pending_initial_media.lock().take();
+    let snapshot = state.playback.snapshot();
+    if shared_playlist {
+        let current = snapshot
+            .displayed_index()
+            .and_then(|index| snapshot.playlist_items.get(index));
+        if current.is_some() && current != Some(&pending.target) {
+            // Match the official delayed-load behavior: make the stream
+            // available without overriding a room's established selection.
+            if let Err(error) = add_media_to_shared_playlist(state, pending.target).await {
+                emit_media_load_error(state, error);
+            }
+            return;
+        }
+    }
+    if let Err(error) = open_media_now(state, pending.target).await {
+        emit_media_load_error(state, error);
+    }
+}
+
+fn emit_media_load_error(state: &Arc<AppState>, error: String) {
+    tracing::warn!("Failed to open initial media: {error}");
+    crate::commands::connection::emit_error_message(state, &error);
+}
+
+async fn open_media_now(state: &Arc<AppState>, target: String) -> Result<(), String> {
     let (target, override_path) = normalize_playlist_entry(&target);
     if is_url(&target) {
-        state.user_initiated_urls.lock().insert(target.clone());
+        *state.user_initiated_url.lock() = Some(target.clone());
     }
     if let Some(path) = override_path {
         state.media_index.add_override_path(&target, path);
     }
     let config = state.config.lock().clone();
-    let publish = shared_playlists_enabled(state, &config) && state.is_connected();
+    let shared_playlist = shared_playlists_enabled(state, &config) && state.is_connected();
     let selection_target = target.clone();
-    let added = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let added_in_edit = added.clone();
+    let previous_items = state.playback.snapshot().playlist_items;
+    let adding = !previous_items.contains(&selection_target);
     let edit = playback_runtime::edit_playlist_and_publish(
         state,
         false,
         move |items, _| {
             if !items.contains(&selection_target) {
                 items.push(selection_target.clone());
-                added_in_edit.store(true, std::sync::atomic::Ordering::Relaxed);
             }
             Ok(())
         },
         |result| {
-            if publish && added.load(std::sync::atomic::Ordering::Relaxed) {
+            if shared_playlist && adding {
                 send_to_server(
                     state,
                     ProtocolMessage::Set {
@@ -71,7 +123,44 @@ pub async fn open_media(state: &Arc<AppState>, target: String) -> Result<(), Str
         .iter()
         .position(|item| item == &target)
         .ok_or_else(|| "Requested media was not added to the playlist".to_string())?;
-    playback_runtime::local_select(state, index, true).await
+    playback_runtime::local_open(state, index, true).await
+}
+
+async fn add_media_to_shared_playlist(state: &Arc<AppState>, target: String) -> Result<(), String> {
+    if state.playback.snapshot().playlist_items.contains(&target) {
+        return Ok(());
+    }
+    playback_runtime::edit_playlist_and_publish(
+        state,
+        false,
+        move |items, _| {
+            items.push(target);
+            Ok(())
+        },
+        |result| {
+            send_to_server(
+                state,
+                ProtocolMessage::Set {
+                    Set: Box::new(SetMessage {
+                        room: None,
+                        file: None,
+                        user: None,
+                        ready: None,
+                        playlist_index: None,
+                        playlist_change: Some(PlaylistChange {
+                            user: None,
+                            files: result.items.clone(),
+                        }),
+                        controller_auth: None,
+                        new_controlled_room: None,
+                        features: None,
+                    }),
+                },
+            )
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 pub async fn update_playlist(
@@ -389,6 +478,7 @@ mod tests {
         let state = AppState::new();
         let factory = Arc::new(FakePlayerFactory::default());
         *state.fake_player_factory.lock() = Some(factory.clone());
+        state.server_features.lock().shared_playlists = false;
         let server = FakeSyncplayServer::start().await.unwrap();
         let connection = Arc::new(Connection::new());
         connection
@@ -399,12 +489,8 @@ mod tests {
         *state.connection.lock() = Some(connection);
         let target = "https://media.example.test/episode.m3u8".to_string();
 
-        open_media(&state, target.clone()).await.unwrap();
-        // A non-shared local selection is announced first; its server echo is
-        // what authorizes the coordinated media load.
-        playback_runtime::server_playlist_and_index(&state, None, Some((Some(0), true)))
-            .await
-            .unwrap();
+        queue_initial_media(&state, target.clone());
+        open_initial_media_if_ready(&state).await;
 
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
@@ -447,6 +533,152 @@ mod tests {
             ProtocolMessage::Set { Set }
                 if Set.playlist_index.as_ref().and_then(|update| update.index) == Some(1)
         ));
+    }
+
+    async fn authenticated_state() -> (Arc<AppState>, FakeSyncplayServer) {
+        let state = AppState::new();
+        let server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        connection.set_authenticated();
+        *state.connection.lock() = Some(connection);
+        (state, server)
+    }
+
+    #[tokio::test]
+    async fn initial_media_waits_for_the_room_snapshot_before_publishing() {
+        let (state, mut server) = authenticated_state().await;
+        let target = "https://media.example.test/new.m3u8".to_string();
+        queue_initial_media(&state, target.clone());
+
+        open_initial_media_if_ready(&state).await;
+        assert!(state.pending_initial_media.lock().is_some());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), server.next_received())
+                .await
+                .is_err()
+        );
+
+        playback_runtime::server_playlist_and_index(
+            &state,
+            Some(vec!["existing.mkv".into()]),
+            Some((Some(0), false)),
+        )
+        .await
+        .unwrap();
+        open_initial_media_if_ready(&state).await;
+
+        let message = tokio::time::timeout(Duration::from_secs(1), server.next_received())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            message,
+            ProtocolMessage::Set { Set }
+                if Set.playlist_change.as_ref().map(|change| &change.files)
+                    == Some(&vec!["existing.mkv".into(), target])
+                && Set.playlist_index.is_none()
+        ));
+        assert!(state.pending_initial_media.lock().is_none());
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn stale_initial_media_cannot_run_in_a_new_connection_generation() {
+        let (state, server) = authenticated_state().await;
+        queue_initial_media(&state, "https://media.example.test/old.m3u8".into());
+        state
+            .connection_session_generation
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        playback_runtime::server_playlist_and_index(&state, Some(Vec::new()), None)
+            .await
+            .unwrap();
+
+        open_initial_media_if_ready(&state).await;
+
+        assert!(state.pending_initial_media.lock().is_some());
+        assert!(state.playback.snapshot().playlist_items.is_empty());
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn empty_shared_room_opens_the_initial_stream_after_its_snapshot() {
+        let (state, server) = authenticated_state().await;
+        let factory = Arc::new(FakePlayerFactory::default());
+        *state.fake_player_factory.lock() = Some(factory.clone());
+        state.server_features.lock().shared_playlists = false;
+        let target = "https://media.example.test/episode.m3u8".to_string();
+        queue_initial_media(&state, target.clone());
+        playback_runtime::server_playlist_and_index(&state, Some(Vec::new()), None)
+            .await
+            .unwrap();
+
+        open_initial_media_if_ready(&state).await;
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if factory.players().iter().any(|player| {
+                    player.commands().iter().any(|command| {
+                        matches!(command, FakePlayerCommand::LoadFile(path) if path == &target)
+                    })
+                }) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn remote_reselection_does_not_reuse_the_initial_url_authorization() {
+        let (state, server) = authenticated_state().await;
+        let factory = Arc::new(FakePlayerFactory::default());
+        *state.fake_player_factory.lock() = Some(factory.clone());
+        let target = "https://media.example.test/episode.m3u8".to_string();
+        let lease = || {
+            playback_runtime::MediaLoadStartupLease::for_test(
+                &state,
+                crate::client::playback::LoadId(1),
+                target.clone(),
+            )
+        };
+
+        *state.user_initiated_url.lock() = Some(target.clone());
+        playback_runtime::replace_playlist(&state, vec![target.clone()], None)
+            .await
+            .unwrap();
+        playback_runtime::local_open(&state, 0, true).await.unwrap();
+        crate::player::controller::load_media_by_name(
+            &state,
+            &target,
+            true,
+            crate::client::playback::LoadId(1),
+            &lease(),
+        )
+        .await
+        .unwrap();
+        assert!(state.user_initiated_url.lock().is_none());
+        let error = match crate::player::controller::load_media_by_name(
+            &state,
+            &target,
+            true,
+            crate::client::playback::LoadId(2),
+            &lease(),
+        )
+        .await
+        {
+            Ok(_) => panic!("a later load reused the one-shot URL authorization"),
+            Err(error) => error,
+        };
+        assert_eq!(error.to_string(), "URL is not trusted");
+        assert_eq!(factory.launch_count(), 1);
+        server.close();
     }
 
     #[tokio::test]

@@ -802,6 +802,7 @@ pub async fn connect_to_server_state(
         return Err("Already connected to a server".to_string());
     }
     let session_generation = begin_connection_session(state);
+    *state.pending_initial_media.lock() = None;
 
     let startup_state = state.clone();
     let mut player_startup = tokio::spawn(async move {
@@ -2293,6 +2294,8 @@ async fn handle_set_message(state: &Arc<AppState>, set_msg: SetMessage) {
             playback_runtime::server_playlist_and_index(state, playlist_items, playlist_index).await
         {
             tracing::warn!("Failed to apply server playlist state: {}", error);
+        } else {
+            crate::commands::playlist::open_initial_media_if_ready(state).await;
         }
     }
 

@@ -18,12 +18,14 @@ pub struct LaunchOptions {
     pub no_store: bool,
     pub debug: bool,
     pub external: bool,
+    pub deferred: bool,
 }
 
 impl LaunchOptions {
     pub fn apply(&self, config: &mut SyncplayConfig) {
         if let Some(host) = &self.host {
-            let (host, port) = split_host(host, self.port.unwrap_or(config.server.port));
+            let (host, port) = split_host(host, self.port.unwrap_or(config.server.port))
+                .expect("host was validated while parsing command-line arguments");
             config.server.host = host;
             config.server.port = port;
         } else if let Some(port) = self.port {
@@ -82,7 +84,7 @@ Options:\n\
       --player-path PATH    Media player executable\n\
       --language LANGUAGE   UI language\n\
       --no-store            Do not save configuration changes\n\
-      --no-gui              Accepted for compatibility; the GUI is still shown\n\
+      --no-gui              Unsupported by the desktop application\n\
   -d, --debug               Enable debug messages\n\
   -g, --force-gui-prompt    Accepted for compatibility\n\
   -v, --version             Print version\n\
@@ -115,7 +117,10 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<ParseOutcome, Strin
                 return Ok(ParseOutcome::Exit(ExitCode::SUCCESS));
             }
             "--no-store" => options.no_store = true,
-            "--no-gui" | "-g" | "--force-gui-prompt" => {}
+            "--no-gui" => {
+                return Err("--no-gui is not supported by the desktop application".to_string());
+            }
+            "-g" | "--force-gui-prompt" => {}
             "-d" | "--debug" => options.debug = true,
             "-a" | "--host" => options.host = Some(next_value(&mut args, &value)?),
             "-n" | "--name" => options.username = Some(next_value(&mut args, &value)?),
@@ -146,6 +151,12 @@ fn parse(args: impl IntoIterator<Item = OsString>) -> Result<ParseOutcome, Strin
             _ => options.player_args.push(value),
         }
     }
+    if options.media.is_none() && !options.player_args.is_empty() {
+        return Err("Player arguments require a media file or URL".to_string());
+    }
+    if let Some(host) = &options.host {
+        split_host(host, options.port.unwrap_or(8999))?;
+    }
     Ok(ParseOutcome::Launch(options))
 }
 
@@ -169,23 +180,23 @@ fn normalize_media(value: String) -> String {
         .unwrap_or(value)
 }
 
-fn split_host(value: &str, default_port: u16) -> (String, u16) {
+fn split_host(value: &str, default_port: u16) -> Result<(String, u16), String> {
     if let Some(host) = value.strip_prefix('[') {
         if let Some((host, port)) = host.split_once("]:") {
-            return (host.to_string(), parse_port(port, default_port));
+            return parse_port(port).map(|port| (host.to_string(), port));
         }
-        return (host.trim_end_matches(']').to_string(), default_port);
+        return Ok((host.trim_end_matches(']').to_string(), default_port));
     }
     if value.matches(':').count() == 1 {
         if let Some((host, port)) = value.rsplit_once(':') {
-            return (host.to_string(), parse_port(port, default_port));
+            return parse_port(port).map(|port| (host.to_string(), port));
         }
     }
-    (value.to_string(), default_port)
+    Ok((value.to_string(), default_port))
 }
 
-fn parse_port(value: &str, default_port: u16) -> u16 {
-    value.parse().unwrap_or(default_port)
+fn parse_port(value: &str) -> Result<u16, String> {
+    value.parse().map_err(|_| format!("invalid port: {value}"))
 }
 
 #[cfg(test)]
@@ -274,5 +285,8 @@ mod tests {
     fn rejects_unknown_options_instead_of_starting_unexpectedly() {
         assert!(parse([OsString::from("--unknown")]).is_err());
         assert!(parse([OsString::from("--host")]).is_err());
+        assert!(parse([OsString::from("--no-gui")]).is_err());
+        assert!(parse([OsString::from("--host=localhost:invalid")]).is_err());
+        assert!(parse([OsString::from("--"), OsString::from("--fullscreen")]).is_err());
     }
 }
