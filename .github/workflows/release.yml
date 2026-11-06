@@ -135,6 +135,7 @@ jobs:
           if (-not (Test-Path $makensis)) { throw "makensis not found at $makensis" }
           Invoke-WebRequest -Uri "https://github.com/GsNSIS/EnVar/releases/download/v0.3.1/EnVar-Plugin.zip" -OutFile "$env:TEMP\EnVar-Plugin.zip"
           Expand-Archive -Path "$env:TEMP\EnVar-Plugin.zip" -DestinationPath "$env:TEMP\EnVar-Plugin" -Force
+          New-Item -ItemType Directory -Force "C:\Program Files (x86)\NSIS\Plugins\x86-unicode", "C:\Program Files (x86)\NSIS\Plugins\amd64-unicode" | Out-Null
           Get-ChildItem "$env:TEMP\EnVar-Plugin" -Recurse -Filter EnVar.dll | ForEach-Object {
             if ($_.FullName -match 'x86-unicode') {
               Copy-Item $_.FullName "C:\Program Files (x86)\NSIS\Plugins\x86-unicode\EnVar.dll" -Force
