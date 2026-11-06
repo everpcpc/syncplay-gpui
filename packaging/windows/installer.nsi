@@ -41,11 +41,19 @@ Section "Install"
 	WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "DisplayVersion" "${VERSION}"
 	WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "NoModify" 1
 	WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Syncplay" "NoRepair" 1
+	; ani-cli discovers syncplay.exe through PATH. EnVar changes only the
+	; current user's environment, so installation still needs no elevation.
+	EnVar::AddValue "PATH" "$INSTDIR"
+	Pop $0
+	System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x001A, i 0, t "Environment", i 0x0002, i 5000, *i .r1)'
 SectionEnd
 
 Section "Uninstall"
 	Delete "$INSTDIR\syncplay.exe"
 	Delete "$INSTDIR\Uninstall.exe"
+	EnVar::DeleteValue "PATH" "$INSTDIR"
+	Pop $0
+	System::Call 'user32::SendMessageTimeout(i 0xFFFF, i 0x001A, i 0, t "Environment", i 0x0002, i 5000, *i .r1)'
 	RMDir "$INSTDIR"
 	Delete "$SMPROGRAMS\Syncplay\Syncplay.lnk"
 	Delete "$SMPROGRAMS\Syncplay\Uninstall.lnk"

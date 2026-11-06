@@ -1,6 +1,6 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tempfile::TempDir;
@@ -50,6 +50,10 @@ pub struct AppState {
     pub sync_engine: Arc<Mutex<SyncEngine>>,
     /// Cached configuration
     pub config: Arc<Mutex<SyncplayConfig>>,
+    /// One-shot authorization for a URL explicitly opened by the local user.
+    pub user_initiated_url: Arc<Mutex<Option<String>>>,
+    /// External launches use temporary connection and player overrides.
+    pub persist_config: AtomicBool,
     /// Last hello payload (for TLS re-handshake)
     pub last_hello: Arc<Mutex<Option<HelloMessage>>>,
     /// Whether hello has been sent for the current connection
@@ -125,6 +129,14 @@ pub struct AppState {
     pub room_warning_task_running: Arc<Mutex<bool>>,
     /// Media index cache
     pub media_index: Arc<MediaIndex>,
+    /// Initial external media waiting for the room's first playlist snapshot.
+    pub pending_initial_media: Arc<Mutex<Option<PendingInitialMedia>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingInitialMedia {
+    pub target: String,
+    pub connection_generation: u64,
 }
 
 #[derive(Debug, Default)]
@@ -177,6 +189,8 @@ impl AppState {
             chat: ChatManager::new(),
             sync_engine: Arc::new(Mutex::new(SyncEngine::new())),
             config: Arc::new(Mutex::new(SyncplayConfig::default())),
+            user_initiated_url: Arc::new(Mutex::new(None)),
+            persist_config: AtomicBool::new(true),
             last_hello: Arc::new(Mutex::new(None)),
             hello_sent: Arc::new(Mutex::new(false)),
             event_sink: Arc::new(Mutex::new(None)),
@@ -215,12 +229,21 @@ impl AppState {
             room_warning_state: Arc::new(Mutex::new(RoomWarningState::default())),
             room_warning_task_running: Arc::new(Mutex::new(false)),
             media_index: MediaIndex::new(),
+            pending_initial_media: Arc::new(Mutex::new(None)),
         })
     }
 
     /// Set the sink receiving events for the UI layer
     pub fn set_event_sink(&self, sink: EventSink) {
         *self.event_sink.lock() = Some(sink);
+    }
+
+    pub fn set_config_persistence(&self, enabled: bool) {
+        self.persist_config.store(enabled, Ordering::Release);
+    }
+
+    pub fn config_persistence_enabled(&self) -> bool {
+        self.persist_config.load(Ordering::Acquire)
     }
 
     pub fn effective_global_state(&self) -> GlobalPlayState {
@@ -276,6 +299,8 @@ impl Default for AppState {
             chat: ChatManager::new(),
             sync_engine: Arc::new(Mutex::new(SyncEngine::new())),
             config: Arc::new(Mutex::new(SyncplayConfig::default())),
+            user_initiated_url: Arc::new(Mutex::new(None)),
+            persist_config: AtomicBool::new(true),
             last_hello: Arc::new(Mutex::new(None)),
             hello_sent: Arc::new(Mutex::new(false)),
             event_sink: Arc::new(Mutex::new(None)),
@@ -314,6 +339,7 @@ impl Default for AppState {
             room_warning_state: Arc::new(Mutex::new(RoomWarningState::default())),
             room_warning_task_running: Arc::new(Mutex::new(false)),
             media_index: MediaIndex::new(),
+            pending_initial_media: Arc::new(Mutex::new(None)),
         }
     }
 }

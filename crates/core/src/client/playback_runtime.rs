@@ -188,6 +188,18 @@ pub(crate) struct MediaLoadStartupLease {
     connection_generation: u64,
 }
 
+#[cfg(test)]
+impl MediaLoadStartupLease {
+    pub(crate) fn for_test(state: &Arc<AppState>, load_id: LoadId, target: String) -> Self {
+        Self {
+            load_id,
+            target,
+            media_action_epoch: state.playback.media_action_epoch.load(Ordering::SeqCst),
+            connection_generation: state.connection_session_generation.load(Ordering::Acquire),
+        }
+    }
+}
+
 impl LoadLease {
     pub(crate) fn cancelled(&self) -> impl Future<Output = ()> + '_ {
         self.cancelled.cancelled()
@@ -333,6 +345,14 @@ pub(crate) fn dispatch_all_outcome_locked(
             _ => None,
         });
         invalidate_media_actions |= next_load_id.is_some() || playlist_replaced || cancel_active;
+        if playlist_replaced && !cancel_active {
+            // A playlist confirmation can arrive after LocalOpen has already
+            // started loading. Keep that load alive while its target remains.
+            let pending_target = playback.pending_load.as_ref().map(|load| &load.target);
+            if pending_target.is_some_and(|target| playback.playlist_items.contains(target)) {
+                invalidate_media_actions = false;
+            }
+        }
         let superseded = if cancel_active {
             state.playback.cancel_active_load()
         } else {
@@ -492,6 +512,22 @@ pub async fn local_select(
         }],
     );
     outcome.effect_error.map_or(Ok(()), Err)
+}
+
+pub async fn local_open(
+    state: &Arc<AppState>,
+    index: usize,
+    reset_position: bool,
+) -> Result<(), String> {
+    dispatch(
+        state,
+        PlaybackEvent::LocalOpen {
+            index,
+            reset_position,
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -998,6 +1034,7 @@ fn spawn_load_effect(state: &Arc<AppState>, effect: PlaybackEffect) {
                 "Failed to execute player load: {}",
                 error
             );
+            crate::commands::connection::emit_error_message(&state, &error);
         }
     });
 }
@@ -1155,6 +1192,77 @@ mod tests {
         assert_eq!(factory.launch_count(), 0);
         assert!(state.player.lock().is_none());
         assert!(!*state.player_connecting.lock());
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn local_open_survives_concurrent_background_player_startup() {
+        let state = AppState::new();
+        let factory = Arc::new(FakePlayerFactory::default());
+        *state.fake_player_factory.lock() = Some(factory.clone());
+        let (server, _connection) = {
+            let server = FakeSyncplayServer::start().await.unwrap();
+            let connection = Arc::new(Connection::new());
+            connection
+                .connect(server.host(), server.port())
+                .await
+                .unwrap();
+            connection.set_authenticated();
+            *state.connection.lock() = Some(connection.clone());
+            (server, connection)
+        };
+        let target = "https://media.example.test/episode.m3u8".to_string();
+        *state.user_initiated_url.lock() = Some(target.clone());
+        replace_playlist(&state, vec![target.clone()], None)
+            .await
+            .unwrap();
+        let startup_state = state.clone();
+        let background = tokio::spawn(async move {
+            crate::player::controller::ensure_player_connected(&startup_state).await
+        });
+        local_open(&state, 0, true).await.unwrap();
+
+        background.await.unwrap().unwrap();
+        wait_for_load_count(&factory.players()[0], 1).await;
+
+        assert!(factory.players()[0].commands().iter().any(
+            |command| matches!(command, FakePlayerCommand::LoadFile(path) if path == &target)
+        ));
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn local_open_survives_shared_playlist_confirmation() {
+        let state = AppState::new();
+        let factory = Arc::new(FakePlayerFactory::default());
+        *state.fake_player_factory.lock() = Some(factory.clone());
+        let server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        connection.set_authenticated();
+        *state.connection.lock() = Some(connection);
+        let target = "https://media.example.test/episode.m3u8".to_string();
+        *state.user_initiated_url.lock() = Some(target.clone());
+        replace_playlist(&state, vec![target.clone()], None)
+            .await
+            .unwrap();
+        local_open(&state, 0, true).await.unwrap();
+
+        server_playlist_and_index(&state, Some(vec![target.clone()]), None)
+            .await
+            .unwrap();
+
+        timeout(Duration::from_secs(1), async {
+            while factory.launch_count() == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        wait_for_load_count(&factory.players()[0], 1).await;
         server.close();
     }
 

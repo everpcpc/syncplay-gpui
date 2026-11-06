@@ -72,6 +72,8 @@ pub struct PlaybackState {
     pub interrupted_load: Option<PendingLoad>,
     pub next_load_id: LoadId,
     pub received_server_index: bool,
+    /// Distinguishes an empty room snapshot from a snapshot not received yet.
+    pub room_playlist_received: bool,
     pub media_uncertain: bool,
 }
 
@@ -93,12 +95,17 @@ impl PlaybackState {
             interrupted_load: None,
             next_load_id: LoadId::FIRST,
             received_server_index: false,
+            room_playlist_received: false,
             media_uncertain: false,
         }
     }
 
     pub fn reduce(&mut self, event: PlaybackEvent) -> Vec<PlaybackEffect> {
         match event {
+            PlaybackEvent::LocalOpen {
+                index,
+                reset_position,
+            } => self.local_open(index, reset_position),
             PlaybackEvent::LocalSelect {
                 index,
                 reset_position,
@@ -255,6 +262,17 @@ impl PlaybackState {
         }]
     }
 
+    fn local_open(&mut self, index: usize, reset_position: bool) -> Vec<PlaybackEffect> {
+        let Some(target) = self.playlist_items.get(index).cloned() else {
+            return Vec::new();
+        };
+        self.proposed_index = None;
+        self.authoritative_index = Some(index);
+        self.authoritative_target = Some(target.clone());
+        self.received_server_index = true;
+        self.load_server_selection(index, target, reset_position)
+    }
+
     fn eof_advance(&mut self, index: usize) -> Vec<PlaybackEffect> {
         let Some(target) = self.playlist_items.get(index).cloned() else {
             return Vec::new();
@@ -266,6 +284,7 @@ impl PlaybackState {
     }
 
     fn apply_server_playlist(&mut self, items: Vec<String>) {
+        self.room_playlist_received = true;
         let displayed_target = self
             .displayed_index()
             .and_then(|index| self.playlist_items.get(index).cloned());
@@ -559,6 +578,11 @@ impl PlaybackState {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlaybackEvent {
+    /// An explicit local open loads directly when no shared playlist owns selection.
+    LocalOpen {
+        index: usize,
+        reset_position: bool,
+    },
     /// A local user action announces an index; only the server echo loads it.
     LocalSelect {
         index: usize,

@@ -108,6 +108,7 @@ pub struct AppStore {
     pub connect_pending: bool,
     pub connect_result: Option<Result<String, String>>,
     pub update_state: UpdateState,
+    pending_initial_media: Option<String>,
 
     _event_task: Task<()>,
 }
@@ -166,6 +167,7 @@ impl AppStore {
             connect_pending: false,
             connect_result: None,
             update_state: UpdateState::Idle,
+            pending_initial_media: None,
             _event_task: event_task,
         }
     }
@@ -174,11 +176,24 @@ impl AppStore {
         self.connection.connected
     }
 
+    pub fn take_pending_initial_media(&mut self) -> Option<String> {
+        self.pending_initial_media.take()
+    }
+
+    pub fn defer_initial_media(&mut self, media: Option<String>) {
+        self.pending_initial_media = media;
+    }
+
     fn handle_ui_event(&mut self, event: UiEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             UiEvent::Core { name, payload } => self.handle_core_event(&name, payload, window, cx),
             UiEvent::ConnectFinished(result) => {
                 self.connect_pending = false;
+                if result.is_err() {
+                    if let Some(pending) = self.core.pending_initial_media.lock().take() {
+                        self.pending_initial_media = Some(pending.target);
+                    }
+                }
                 if let Err(error) = &result {
                     window.push_notification(
                         (
@@ -398,10 +413,11 @@ impl AppStore {
     // core events (`connection-status-changed`, `config-updated`, ...), so no
     // optimistic local updates happen here.
 
-    pub fn connect(
+    pub fn connect_with_media(
         &mut self,
         params: ConnectParams,
         save_config: Option<SyncplayConfig>,
+        initial_media: Option<String>,
         cx: &mut Context<Self>,
     ) {
         self.connect_pending = true;
@@ -430,6 +446,22 @@ impl AppStore {
             )
             .await
             .map(|_| label);
+            if result.is_ok() {
+                if let Some(media) = initial_media.clone() {
+                    commands::playlist::queue_initial_media(&core, media);
+                }
+            }
+            if result.is_err() {
+                if let Some(media) = initial_media {
+                    *core.pending_initial_media.lock() =
+                        Some(syncplay_core::app_state::PendingInitialMedia {
+                            target: media,
+                            connection_generation: core
+                                .connection_session_generation
+                                .load(std::sync::atomic::Ordering::Acquire),
+                        });
+                }
+            }
             let _ = ui_tx.send(UiEvent::ConnectFinished(result)).await;
         });
     }
