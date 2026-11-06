@@ -17,4 +17,4 @@ logs
 /target
 **/*.rs.bk
 
-.alma-snapshots
+/.agents/tasks/
