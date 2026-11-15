@@ -8,7 +8,7 @@ use tokio::time::{Duration, Instant};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 
-use super::messages::{IgnoringInfo, PingInfo, ProtocolMessage, StateMessage};
+use super::messages::{IgnoringInfo, PingInfo, PlayState, ProtocolMessage, StateMessage};
 use super::ping::PingService;
 use super::protocol::SyncplayCodec;
 use super::tls::{upgrade_to_tls, TlsInfo};
@@ -456,7 +456,12 @@ impl Connection {
 }
 
 /// Build the transport-level half of a State response. The application sends
-/// its corrected playstate separately, without repeating the ping exchange.
+/// its corrected local playstate separately, without repeating the ping exchange.
+///
+/// The server refreshes its watcher clock for every State, but only advances
+/// the stored position when playstate is present. Echo the authoritative
+/// server playstate so keepalives cannot freeze that clock. Strip doSeek to
+/// avoid repeating a forced action before the corrected local response.
 fn state_ping_acknowledgement(
     message: &ProtocolMessage,
     client_rtt: f64,
@@ -472,7 +477,12 @@ fn state_ping_acknowledgement(
         .filter(|server| *server != 0);
     Some(ProtocolMessage::State {
         State: StateMessage {
-            playstate: None,
+            playstate: State.playstate.as_ref().map(|playstate| PlayState {
+                position: playstate.position,
+                paused: playstate.paused,
+                do_seek: None,
+                set_by: None,
+            }),
             ping: Some(PingInfo {
                 latency_calculation: ping.latency_calculation,
                 client_latency_calculation: Some(PingService::new_timestamp()),
@@ -516,7 +526,7 @@ mod tests {
                         playstate: Some(PlayState {
                             position: index as f64,
                             paused: true,
-                            do_seek: None,
+                            do_seek: (index == 1).then_some(true),
                             set_by: Some("server".to_string()),
                         }),
                         ping: Some(PingInfo {
@@ -540,7 +550,13 @@ mod tests {
             let ProtocolMessage::State { State } = response else {
                 panic!("expected State heartbeat, got {response:?}");
             };
-            assert!(State.playstate.is_none());
+            let playstate = State
+                .playstate
+                .expect("heartbeat must preserve the server clock");
+            assert_eq!(playstate.position, index as f64);
+            assert!(playstate.paused);
+            assert_eq!(playstate.do_seek, None);
+            assert_eq!(playstate.set_by, None);
             let ping = State.ping.unwrap();
             assert_eq!(ping.latency_calculation, Some(100.0 + index as f64));
             assert!(ping.client_latency_calculation.is_some());

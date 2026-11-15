@@ -4152,7 +4152,7 @@ mod lifecycle_tests {
                 State: StateMessage {
                     playstate: Some(PlayState {
                         position: 0.0,
-                        paused: true,
+                        paused: false,
                         do_seek: None,
                         set_by: Some("bob".to_string()),
                     }),
@@ -4171,18 +4171,24 @@ mod lifecycle_tests {
             .await
             .expect("transport heartbeat must not wait for the player poll")
             .unwrap();
+        let ProtocolMessage::State {
+            State: heartbeat_state,
+        } = heartbeat
+        else {
+            panic!("expected transport heartbeat, got {heartbeat:?}");
+        };
+        let heartbeat_playstate = heartbeat_state
+            .playstate
+            .expect("heartbeat must echo the authoritative playstate");
+        assert_eq!(heartbeat_playstate.position, 0.0);
+        assert!(!heartbeat_playstate.paused);
+        assert_eq!(heartbeat_playstate.do_seek, None);
         assert!(matches!(
-            heartbeat,
-            ProtocolMessage::State {
-                State: StateMessage {
-                    playstate: None,
-                    ping: Some(PingInfo {
-                        latency_calculation: Some(0.25),
-                        ..
-                    }),
-                    ..
-                }
-            }
+            heartbeat_state.ping,
+            Some(PingInfo {
+                latency_calculation: Some(0.25),
+                ..
+            })
         ));
 
         let response = timeout(Duration::from_secs(2), async {
@@ -4201,8 +4207,8 @@ mod lifecycle_tests {
         };
         assert!(State.ping.is_none());
         let playstate = State.playstate.expect("missing corrected playstate");
-        assert!(playstate.position.abs() < 0.01);
-        assert!(playstate.paused);
+        assert!((0.0..2.0).contains(&playstate.position));
+        assert!(!playstate.paused);
 
         take_current_connection_session(&state, &connection)
             .unwrap()
