@@ -138,6 +138,9 @@ pub struct Connection {
     port: Mutex<u16>,
     tx: std::sync::Arc<Mutex<Option<mpsc::UnboundedSender<ConnectionCommand>>>>,
     terminal_error: std::sync::Arc<Mutex<Option<TerminalConnectionError>>>,
+    // Record transport-level protocol activity before the application consumes
+    // it. Player corrections can delay the application receiver indefinitely.
+    last_global_state_received: std::sync::Arc<Mutex<Option<Instant>>>,
 }
 
 impl Connection {
@@ -148,6 +151,7 @@ impl Connection {
             port: Mutex::new(0),
             tx: std::sync::Arc::new(Mutex::new(None)),
             terminal_error: std::sync::Arc::new(Mutex::new(None)),
+            last_global_state_received: std::sync::Arc::new(Mutex::new(None)),
         }
     }
 
@@ -195,6 +199,7 @@ impl Connection {
         let state_ref = self.state.clone();
         let tx_ref = self.tx.clone();
         let terminal_error_ref = self.terminal_error.clone();
+        let last_global_state_received_ref = self.last_global_state_received.clone();
         tokio::spawn(async move {
             info!("Connection loop started");
             let mut idle_tick = tokio::time::interval(Duration::from_secs(10));
@@ -205,7 +210,11 @@ impl Connection {
                         match cmd {
                             ConnectionCommand::Send(msg) => {
                                 if let Err(e) = transport.send(*msg).await {
-                                    error!("Failed to send message: {}", e);
+                                    error!(
+                                        error = %format!("{e:#}"),
+                                        idle_seconds = last_received.elapsed().as_secs_f64(),
+                                        "connection_lifecycle: transport write failed"
+                                    );
                                     break;
                                 }
                             }
@@ -237,6 +246,7 @@ impl Connection {
                                 }
                             }
                             ConnectionCommand::Disconnect => {
+                                info!("connection_lifecycle: local disconnect requested");
                                 break;
                             }
                         }
@@ -245,19 +255,29 @@ impl Connection {
                         match message {
                             Some(Ok(msg)) => {
                                 last_received = Instant::now();
+                                if matches!(&msg, ProtocolMessage::State { State } if State.playstate.is_some()) {
+                                    *last_global_state_received_ref.lock() = Some(last_received);
+                                }
                                 if msg_tx.send(msg).is_err() {
                                     warn!("Failed to forward received message");
                                     break;
                                 }
                             }
                             Some(Err(e)) => {
-                                error!("Failed to receive message: {}", e);
+                                error!(
+                                    error = %format!("{e:#}"),
+                                    idle_seconds = last_received.elapsed().as_secs_f64(),
+                                    "connection_lifecycle: transport read failed"
+                                );
                                 *terminal_error_ref.lock() =
                                     Some(TerminalConnectionError::Protocol(e.to_string()));
                                 break;
                             }
                             None => {
-                                debug!("Receive task terminated");
+                                info!(
+                                    idle_seconds = last_received.elapsed().as_secs_f64(),
+                                    "connection_lifecycle: remote peer closed the transport (EOF)"
+                                );
                                 break;
                             }
                         }
@@ -275,6 +295,26 @@ impl Connection {
         });
 
         Ok((msg_rx, peer_address))
+    }
+
+    /// Return and clear a timed-out global-State timestamp. Clearing it makes
+    /// concurrent timeout checks idempotent while reconnect shuts down.
+    pub fn take_global_state_timeout(&self, timeout: Duration) -> Option<Duration> {
+        let mut last_received = self.last_global_state_received.lock();
+        let age = last_received.as_ref()?.elapsed();
+        if age <= timeout {
+            return None;
+        }
+        last_received.take();
+        Some(age)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_state_age(&self) -> Option<Duration> {
+        self.last_global_state_received
+            .lock()
+            .as_ref()
+            .map(Instant::elapsed)
     }
 
     /// Send a message to the server

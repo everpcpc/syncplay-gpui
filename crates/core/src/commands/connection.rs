@@ -408,23 +408,33 @@ pub(crate) fn set_authoritative_room(state: &Arc<AppState>, room: String) {
 }
 
 pub(crate) fn check_protocol_timeout(state: &Arc<AppState>) -> bool {
-    let timed_out = {
-        let guard = state.last_global_update.lock();
-        let Some(last_global_update) = guard.as_ref() else {
+    let timed_out_connection = state.connection.lock().clone();
+    let timeout = Duration::from_secs_f64(PROTOCOL_TIMEOUT_SECONDS);
+    let idle = if let Some(connection) = timed_out_connection.as_ref() {
+        connection.take_global_state_timeout(timeout)
+    } else {
+        // Unit tests and defensive cleanup paths may not have a transport.
+        let mut last_global_update = state.last_global_update.lock();
+        let Some(last_received) = last_global_update.as_ref() else {
             return false;
         };
-        last_global_update.elapsed().as_secs_f64() > PROTOCOL_TIMEOUT_SECONDS
+        let idle = last_received.elapsed();
+        if idle <= timeout {
+            return false;
+        }
+        last_global_update.take();
+        Some(idle)
     };
-    if !timed_out {
+    let Some(idle) = idle else {
         return false;
-    }
+    };
     tracing::warn!(
         timeout_seconds = PROTOCOL_TIMEOUT_SECONDS,
-        "protocol_timeout: no global State within timeout; disconnecting"
+        idle_seconds = idle.as_secs_f64(),
+        "protocol_timeout: no global State reached the transport within timeout; disconnecting locally"
     );
     *state.last_global_update.lock() = None;
     emit_error_message(state, "Server timed out");
-    let timed_out_connection = state.connection.lock().clone();
     let timed_out_generation = current_connection_session(state);
     if let Some(connection) = timed_out_connection.as_ref() {
         connection.disconnect();
@@ -978,11 +988,16 @@ async fn handle_server_message(message: ProtocolMessage, state: &Arc<AppState>) 
                     state.emit_event("ping-updated", serde_json::json!({ "rttMs": rtt_ms }));
                 }
             }
-            if let Some(playstate) = state_msg.playstate {
-                if !client_ignore_active {
-                    handle_state_update(state, playstate, message_age).await;
-                }
-            }
+            // Apply the cheap protocol state first and answer immediately.
+            // Player polling/correction may wait on a busy or unresponsive
+            // player, but must not hold up the server's heartbeat response.
+            let pending_player_update = if !client_ignore_active {
+                state_msg
+                    .playstate
+                    .map(|playstate| apply_global_state(state, playstate, message_age))
+            } else {
+                None
+            };
             let latency_calculation = state_msg
                 .ping
                 .as_ref()
@@ -994,6 +1009,9 @@ async fn handle_server_message(message: ProtocolMessage, state: &Arc<AppState>) 
                 false,
             ) {
                 tracing::warn!("Failed to send state response: {}", e);
+            }
+            if let Some(update) = pending_player_update {
+                apply_player_state_update(state, update).await;
             }
             if state.reconnect_state.lock().running
                 && state
@@ -1202,7 +1220,18 @@ async fn try_set_paused(
     .is_some()
 }
 
-async fn handle_state_update(state: &Arc<AppState>, playstate: PlayState, message_age: f64) {
+struct PendingGlobalStateUpdate {
+    playstate: PlayState,
+    adjusted_global_position: f64,
+    previous_global_paused: bool,
+    had_last_global: bool,
+}
+
+fn apply_global_state(
+    state: &Arc<AppState>,
+    playstate: PlayState,
+    message_age: f64,
+) -> PendingGlobalStateUpdate {
     let had_last_global = state.last_global_update.lock().is_some();
     *state.last_global_update.lock() = Some(std::time::Instant::now());
     if !had_last_global && state.last_updated_file_time.lock().is_none() {
@@ -1220,13 +1249,32 @@ async fn handle_state_update(state: &Arc<AppState>, playstate: PlayState, messag
     } else {
         playstate.position
     };
-    let previous_global = state.client_state.get_global_state();
+    let previous_global_paused = state.client_state.get_global_state().paused;
     state.client_state.set_global_state(
         adjusted_global_position,
         playstate.paused,
         playstate.set_by.clone(),
     );
+    PendingGlobalStateUpdate {
+        playstate,
+        adjusted_global_position,
+        previous_global_paused,
+        had_last_global,
+    }
+}
 
+async fn handle_state_update(state: &Arc<AppState>, playstate: PlayState, message_age: f64) {
+    let update = apply_global_state(state, playstate, message_age);
+    apply_player_state_update(state, update).await;
+}
+
+async fn apply_player_state_update(state: &Arc<AppState>, update: PendingGlobalStateUpdate) {
+    let PendingGlobalStateUpdate {
+        playstate,
+        adjusted_global_position,
+        previous_global_paused,
+        had_last_global,
+    } = update;
     let player = state.player.lock().clone();
     let Some(player) = player else { return };
     let player_kind = player.kind();
@@ -1253,7 +1301,7 @@ async fn handle_state_update(state: &Arc<AppState>, playstate: PlayState, messag
         .clone()
         .unwrap_or_else(|| "Unknown".to_string());
     let do_seek = playstate.do_seek.unwrap_or(false);
-    let global_pause_changed = playstate.paused != previous_global.paused;
+    let global_pause_changed = playstate.paused != previous_global_paused;
     let pause_correction_pending = state
         .local_playback_state
         .lock()
@@ -3977,6 +4025,128 @@ mod lifecycle_tests {
             std::time::Instant::now() - Duration::from_secs_f64(PROTOCOL_TIMEOUT_SECONDS + 1.0),
         );
         assert!(!check_protocol_timeout(&state));
+    }
+
+    #[tokio::test]
+    async fn protocol_timeout_uses_transport_arrival_not_application_processing() {
+        let state = AppState::new();
+        let server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        let (_receiver, _) = connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        assert!(claim_connection_session(&state, connection.clone()));
+        *state.last_global_update.lock() = Some(
+            std::time::Instant::now() - Duration::from_secs_f64(PROTOCOL_TIMEOUT_SECONDS + 1.0),
+        );
+
+        // The application receiver deliberately remains untouched. Arrival at
+        // the transport is sufficient evidence that the server is alive.
+        server
+            .send(ProtocolMessage::State {
+                State: StateMessage {
+                    playstate: Some(PlayState {
+                        position: 10.0,
+                        paused: true,
+                        do_seek: None,
+                        set_by: Some("server".to_string()),
+                    }),
+                    ping: Some(PingInfo {
+                        latency_calculation: None,
+                        client_latency_calculation: None,
+                        client_rtt: None,
+                        server_rtt: None,
+                    }),
+                    ignoring_on_the_fly: None,
+                },
+            })
+            .unwrap();
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if connection.global_state_age().is_some() {
+                    break;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        assert!(!check_protocol_timeout(&state));
+        assert!(is_current_connection_session(&state, &connection));
+
+        take_current_connection_session(&state, &connection)
+            .unwrap()
+            .disconnect();
+        server.close();
+    }
+
+    #[tokio::test]
+    async fn state_heartbeat_is_sent_before_a_slow_player_poll() {
+        let state = AppState::new();
+        let mut server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Arc::new(Connection::new());
+        let (_receiver, _) = connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        assert!(claim_connection_session(&state, connection.clone()));
+        *state.last_updated_file_time.lock() = Some(std::time::Instant::now());
+
+        let player = Arc::new(FakePlayerBackend::new(PlayerKind::Mpv));
+        player.set_poll_delay(Duration::from_secs(2));
+        *state.player.lock() = Some(player);
+
+        let processing_state = state.clone();
+        let processing = tokio::spawn(async move {
+            handle_server_message(
+                ProtocolMessage::State {
+                    State: StateMessage {
+                        playstate: Some(PlayState {
+                            position: 10.0,
+                            paused: true,
+                            do_seek: None,
+                            set_by: Some("server".to_string()),
+                        }),
+                        ping: Some(PingInfo {
+                            latency_calculation: Some(0.25),
+                            client_latency_calculation: None,
+                            client_rtt: None,
+                            server_rtt: None,
+                        }),
+                        ignoring_on_the_fly: None,
+                    },
+                },
+                &processing_state,
+            )
+            .await;
+        });
+
+        let response = timeout(Duration::from_millis(250), server.next_received())
+            .await
+            .expect("heartbeat must not wait for the player poll")
+            .unwrap();
+        assert!(matches!(
+            response,
+            ProtocolMessage::State {
+                State: StateMessage {
+                    ping: Some(PingInfo {
+                        latency_calculation: Some(latency),
+                        ..
+                    }),
+                    ..
+                }
+            } if latency == 0.25
+        ));
+        assert!(!processing.is_finished());
+
+        processing.abort();
+        let _ = processing.await;
+        take_current_connection_session(&state, &connection)
+            .unwrap()
+            .disconnect();
+        server.close();
     }
 
     async fn expect_client_tls_or_hello(server: &mut FakeSyncplayServer) -> HelloMessage {
