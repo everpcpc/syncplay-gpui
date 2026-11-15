@@ -979,18 +979,23 @@ async fn handle_server_message(message: ProtocolMessage, state: &Arc<AppState>) 
                 if let (Some(client_latency), Some(server_rtt)) =
                     (ping.client_latency_calculation, ping.server_rtt)
                 {
-                    state
-                        .ping_service
-                        .lock()
-                        .receive_message(client_latency, server_rtt);
-                    message_age = state.ping_service.lock().get_last_forward_delay();
-                    let rtt_ms = state.ping_service.lock().get_rtt() * 1000.0;
-                    state.emit_event("ping-updated", serde_json::json!({ "rttMs": rtt_ms }));
+                    let (forward_delay, rtt) = {
+                        let mut ping_service = state.ping_service.lock();
+                        ping_service.receive_message(client_latency, server_rtt);
+                        (
+                            ping_service.get_last_forward_delay(),
+                            ping_service.get_rtt(),
+                        )
+                    };
+                    message_age = forward_delay;
+                    if let Some(connection) = state.connection.lock().clone() {
+                        connection.set_client_rtt(rtt);
+                    }
+                    state.emit_event("ping-updated", serde_json::json!({ "rttMs": rtt * 1000.0 }));
                 }
             }
-            // Apply the cheap protocol state first and answer immediately.
-            // Player polling/correction may wait on a busy or unresponsive
-            // player, but must not hold up the server's heartbeat response.
+            let expects_playstate_response =
+                state_msg.playstate.is_some() || state_msg.ignoring_on_the_fly.is_some();
             let pending_player_update = if !client_ignore_active {
                 state_msg
                     .playstate
@@ -998,20 +1003,15 @@ async fn handle_server_message(message: ProtocolMessage, state: &Arc<AppState>) 
             } else {
                 None
             };
-            let latency_calculation = state_msg
-                .ping
-                .as_ref()
-                .and_then(|ping| ping.latency_calculation);
-            if let Err(e) = send_state_message(
-                state,
-                build_local_playstate(state),
-                latency_calculation,
-                false,
-            ) {
-                tracing::warn!("Failed to send state response: {}", e);
-            }
             if let Some(update) = pending_player_update {
                 apply_player_state_update(state, update).await;
+            }
+            // The transport already acknowledged the ping. Report the
+            // corrected playstate separately without a duplicate RTT sample.
+            if expects_playstate_response {
+                if let Err(e) = send_playstate_response(state) {
+                    tracing::warn!("Failed to send playstate response: {}", e);
+                }
             }
             if state.reconnect_state.lock().running
                 && state
@@ -1561,10 +1561,10 @@ fn build_local_playstate(state: &Arc<AppState>) -> Option<PlayState> {
     })
 }
 
-pub(crate) fn send_state_message(
+fn send_protocol_state(
     state: &Arc<AppState>,
     playstate: Option<PlayState>,
-    latency_calculation: Option<f64>,
+    ping: Option<PingInfo>,
     state_change: bool,
 ) -> Result<(), String> {
     let mut ignoring = state.ignoring_on_the_fly.lock();
@@ -1598,17 +1598,11 @@ pub(crate) fn send_state_message(
     }
     drop(ignoring);
 
-    let ping = PingInfo {
-        latency_calculation,
-        client_latency_calculation: Some(crate::network::ping::PingService::new_timestamp()),
-        client_rtt: Some(state.ping_service.lock().get_rtt()),
-        server_rtt: None,
-    };
     *state.last_state_message_sent.lock() = Some(std::time::Instant::now());
     let message = ProtocolMessage::State {
         State: StateMessage {
             playstate,
-            ping: Some(ping),
+            ping,
             ignoring_on_the_fly: ignoring_info,
         },
     };
@@ -1616,6 +1610,25 @@ pub(crate) fn send_state_message(
         return Err("Not connected".to_string());
     };
     connection.send(message).map_err(|e| e.to_string())
+}
+
+pub(crate) fn send_state_message(
+    state: &Arc<AppState>,
+    playstate: Option<PlayState>,
+    latency_calculation: Option<f64>,
+    state_change: bool,
+) -> Result<(), String> {
+    let ping = PingInfo {
+        latency_calculation,
+        client_latency_calculation: Some(crate::network::ping::PingService::new_timestamp()),
+        client_rtt: Some(state.ping_service.lock().get_rtt()),
+        server_rtt: None,
+    };
+    send_protocol_state(state, playstate, Some(ping), state_change)
+}
+
+fn send_playstate_response(state: &Arc<AppState>) -> Result<(), String> {
+    send_protocol_state(state, build_local_playstate(state), None, false)
 }
 
 pub(crate) fn emit_system_message(state: &Arc<AppState>, message: &str) {
@@ -4083,11 +4096,16 @@ mod lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn state_heartbeat_is_sent_before_a_slow_player_poll() {
+    async fn playstate_response_follows_slow_player_correction_without_duplicate_ping() {
         let state = AppState::new();
+        state.client_state.set_username("alice".to_string());
+        state
+            .client_state
+            .set_global_state(10.0, true, Some("bob".to_string()));
+        *state.last_global_update.lock() = Some(std::time::Instant::now());
         let mut server = FakeSyncplayServer::start().await.unwrap();
         let connection = Arc::new(Connection::new());
-        let (_receiver, _) = connection
+        let (receiver, _) = connection
             .connect(server.host(), server.port())
             .await
             .unwrap();
@@ -4095,54 +4113,97 @@ mod lifecycle_tests {
         *state.last_updated_file_time.lock() = Some(std::time::Instant::now());
 
         let player = Arc::new(FakePlayerBackend::new(PlayerKind::Mpv));
-        player.set_poll_delay(Duration::from_secs(2));
+        player.set_fake_state(PlayerState {
+            position: Some(10.0),
+            paused: Some(true),
+            ..PlayerState::default()
+        });
+        let snapshot = player.get_state();
+        state.local_playback_state.lock().update_from_player(
+            10.0,
+            true,
+            snapshot.observed_position,
+            snapshot.observed_paused,
+            snapshot.position_observation_generation,
+            snapshot.paused_observation_generation,
+            10.0,
+            true,
+        );
+        player.set_poll_delay(Duration::from_millis(500));
         *state.player.lock() = Some(player);
 
-        let processing_state = state.clone();
-        let processing = tokio::spawn(async move {
-            handle_server_message(
-                ProtocolMessage::State {
-                    State: StateMessage {
-                        playstate: Some(PlayState {
-                            position: 10.0,
-                            paused: true,
-                            do_seek: None,
-                            set_by: Some("server".to_string()),
-                        }),
-                        ping: Some(PingInfo {
-                            latency_calculation: Some(0.25),
-                            client_latency_calculation: None,
-                            client_rtt: None,
-                            server_rtt: None,
-                        }),
-                        ignoring_on_the_fly: None,
-                    },
+        let snapshot = ConnectionSnapshot {
+            host: server.host(),
+            port: server.port(),
+            username: "alice".to_string(),
+            room: "room".to_string(),
+            password: None,
+        };
+        let session_generation = begin_connection_session(&state);
+        start_connection_session(
+            &state,
+            &snapshot,
+            connection.clone(),
+            session_generation,
+            receiver,
+        );
+        server
+            .send(ProtocolMessage::State {
+                State: StateMessage {
+                    playstate: Some(PlayState {
+                        position: 0.0,
+                        paused: true,
+                        do_seek: None,
+                        set_by: Some("bob".to_string()),
+                    }),
+                    ping: Some(PingInfo {
+                        latency_calculation: Some(0.25),
+                        client_latency_calculation: None,
+                        client_rtt: None,
+                        server_rtt: None,
+                    }),
+                    ignoring_on_the_fly: None,
                 },
-                &processing_state,
-            )
-            .await;
-        });
+            })
+            .unwrap();
 
-        let response = timeout(Duration::from_millis(250), server.next_received())
+        let heartbeat = timeout(Duration::from_secs(2), server.next_received())
             .await
-            .expect("heartbeat must not wait for the player poll")
+            .expect("transport heartbeat must not wait for the player poll")
             .unwrap();
         assert!(matches!(
-            response,
+            heartbeat,
             ProtocolMessage::State {
                 State: StateMessage {
+                    playstate: None,
                     ping: Some(PingInfo {
-                        latency_calculation: Some(latency),
+                        latency_calculation: Some(0.25),
                         ..
                     }),
                     ..
                 }
-            } if latency == 0.25
+            }
         ));
-        assert!(!processing.is_finished());
 
-        processing.abort();
-        let _ = processing.await;
+        let response = timeout(Duration::from_secs(2), async {
+            loop {
+                match server.next_received().await {
+                    Some(message @ ProtocolMessage::State { .. }) => break message,
+                    Some(_) => continue,
+                    None => panic!("server closed before the corrected playstate response"),
+                }
+            }
+        })
+        .await
+        .expect("corrected playstate response must follow the player poll");
+        let ProtocolMessage::State { State } = response else {
+            panic!("expected playstate response, got {response:?}");
+        };
+        assert!(State.ping.is_none());
+        let playstate = State.playstate.expect("missing corrected playstate");
+        assert!(playstate.position.abs() < 0.01);
+        assert!(playstate.paused);
+
         take_current_connection_session(&state, &connection)
             .unwrap()
             .disconnect();
@@ -4859,6 +4920,20 @@ mod lifecycle_tests {
             .any(|command| matches!(command, FakePlayerCommand::ShowChatMessage(_, _))));
     }
 
+    async fn expect_playstate_only_response(server: &mut FakeSyncplayServer) -> StateMessage {
+        timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(ProtocolMessage::State { State }) = server.next_received().await {
+                    if State.ping.is_none() {
+                        break State;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("missing playstate-only response")
+    }
+
     async fn send_server_state_and_expect_client_state(
         server: &mut FakeSyncplayServer,
         position: f64,
@@ -4885,15 +4960,19 @@ mod lifecycle_tests {
             })
             .unwrap();
 
-        timeout(Duration::from_secs(2), async {
+        let acknowledgement = timeout(Duration::from_secs(2), async {
             loop {
                 if let Some(ProtocolMessage::State { State }) = server.next_received().await {
-                    break State;
+                    if State.ping.is_some() {
+                        break State;
+                    }
                 }
             }
         })
         .await
-        .unwrap()
+        .unwrap();
+        expect_playstate_only_response(server).await;
+        acknowledgement
     }
 
     async fn connect_fake_server_and_player(
@@ -5743,7 +5822,7 @@ mod lifecycle_tests {
     }
 
     #[tokio::test]
-    async fn every_state_response_includes_client_timing() {
+    async fn state_ping_acknowledgements_include_client_timing() {
         let state = AppState::new();
         let factory = Arc::new(FakePlayerFactory::default());
         *state.fake_player_factory.lock() = Some(factory.clone());
@@ -5834,6 +5913,7 @@ mod lifecycle_tests {
         assert_eq!(first_ping.latency_calculation, Some(100.0));
         assert!(first_ping.client_latency_calculation.is_some());
         assert!(first_ping.client_rtt.is_some());
+        expect_playstate_only_response(&mut server).await;
 
         server
             .send(ProtocolMessage::State {
@@ -5869,6 +5949,7 @@ mod lifecycle_tests {
         assert_eq!(second_ping.latency_calculation, Some(101.0));
         assert!(second_ping.client_latency_calculation.is_some());
         assert!(second_ping.client_rtt.is_some());
+        expect_playstate_only_response(&mut server).await;
 
         let player = factory.players().first().cloned().unwrap();
         state.server_features.lock().readiness = false;
