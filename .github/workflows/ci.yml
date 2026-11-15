@@ -16,9 +16,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
 
     steps:
     - uses: actions/checkout@v5
@@ -28,8 +25,8 @@ jobs:
       with:
         components: rustfmt, clippy
 
-    - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.11
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@v2
 
     - name: Setup nextest
       uses: taiki-e/install-action@nextest

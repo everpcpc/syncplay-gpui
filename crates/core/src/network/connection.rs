@@ -1,13 +1,15 @@
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{Duration, Instant};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 
-use super::messages::ProtocolMessage;
+use super::messages::{IgnoringInfo, PingInfo, PlayState, ProtocolMessage, StateMessage};
+use super::ping::PingService;
 use super::protocol::SyncplayCodec;
 use super::tls::{upgrade_to_tls, TlsInfo};
 
@@ -138,6 +140,10 @@ pub struct Connection {
     port: Mutex<u16>,
     tx: std::sync::Arc<Mutex<Option<mpsc::UnboundedSender<ConnectionCommand>>>>,
     terminal_error: std::sync::Arc<Mutex<Option<TerminalConnectionError>>>,
+    // Record transport-level protocol activity before the application consumes
+    // it. Player corrections can delay the application receiver indefinitely.
+    last_global_state_received: std::sync::Arc<Mutex<Option<Instant>>>,
+    client_rtt_bits: std::sync::Arc<AtomicU64>,
 }
 
 impl Connection {
@@ -148,6 +154,8 @@ impl Connection {
             port: Mutex::new(0),
             tx: std::sync::Arc::new(Mutex::new(None)),
             terminal_error: std::sync::Arc::new(Mutex::new(None)),
+            last_global_state_received: std::sync::Arc::new(Mutex::new(None)),
+            client_rtt_bits: std::sync::Arc::new(AtomicU64::new(0.0_f64.to_bits())),
         }
     }
 
@@ -166,6 +174,9 @@ impl Connection {
         *self.host.lock() = host.clone();
         *self.port.lock() = port;
         *self.terminal_error.lock() = None;
+        *self.last_global_state_received.lock() = None;
+        self.client_rtt_bits
+            .store(0.0_f64.to_bits(), Ordering::Release);
 
         // Connect TCP stream
         let address = format!("{}:{}", host, port);
@@ -195,6 +206,8 @@ impl Connection {
         let state_ref = self.state.clone();
         let tx_ref = self.tx.clone();
         let terminal_error_ref = self.terminal_error.clone();
+        let last_global_state_received_ref = self.last_global_state_received.clone();
+        let client_rtt_bits_ref = self.client_rtt_bits.clone();
         tokio::spawn(async move {
             info!("Connection loop started");
             let mut idle_tick = tokio::time::interval(Duration::from_secs(10));
@@ -205,7 +218,11 @@ impl Connection {
                         match cmd {
                             ConnectionCommand::Send(msg) => {
                                 if let Err(e) = transport.send(*msg).await {
-                                    error!("Failed to send message: {}", e);
+                                    error!(
+                                        error = %format!("{e:#}"),
+                                        idle_seconds = last_received.elapsed().as_secs_f64(),
+                                        "connection_lifecycle: transport write failed"
+                                    );
                                     break;
                                 }
                             }
@@ -237,6 +254,7 @@ impl Connection {
                                 }
                             }
                             ConnectionCommand::Disconnect => {
+                                info!("connection_lifecycle: local disconnect requested");
                                 break;
                             }
                         }
@@ -245,19 +263,44 @@ impl Connection {
                         match message {
                             Some(Ok(msg)) => {
                                 last_received = Instant::now();
+                                if matches!(&msg, ProtocolMessage::State { State } if State.playstate.is_some()) {
+                                    *last_global_state_received_ref.lock() = Some(last_received);
+                                }
+                                // Keepalive is a transport concern. Never make it
+                                // wait for playback or other application handlers.
+                                if let Some(ack) = state_ping_acknowledgement(
+                                    &msg,
+                                    f64::from_bits(client_rtt_bits_ref.load(Ordering::Acquire)),
+                                ) {
+                                    if let Err(e) = transport.send(ack).await {
+                                        error!(
+                                            error = %format!("{e:#}"),
+                                            idle_seconds = last_received.elapsed().as_secs_f64(),
+                                            "connection_lifecycle: heartbeat write failed"
+                                        );
+                                        break;
+                                    }
+                                }
                                 if msg_tx.send(msg).is_err() {
                                     warn!("Failed to forward received message");
                                     break;
                                 }
                             }
                             Some(Err(e)) => {
-                                error!("Failed to receive message: {}", e);
+                                error!(
+                                    error = %format!("{e:#}"),
+                                    idle_seconds = last_received.elapsed().as_secs_f64(),
+                                    "connection_lifecycle: transport read failed"
+                                );
                                 *terminal_error_ref.lock() =
                                     Some(TerminalConnectionError::Protocol(e.to_string()));
                                 break;
                             }
                             None => {
-                                debug!("Receive task terminated");
+                                info!(
+                                    idle_seconds = last_received.elapsed().as_secs_f64(),
+                                    "connection_lifecycle: remote peer closed the transport (EOF)"
+                                );
                                 break;
                             }
                         }
@@ -275,6 +318,30 @@ impl Connection {
         });
 
         Ok((msg_rx, peer_address))
+    }
+
+    pub fn set_client_rtt(&self, rtt: f64) {
+        self.client_rtt_bits.store(rtt.to_bits(), Ordering::Release);
+    }
+
+    /// Return and clear a timed-out global-State timestamp. Clearing it makes
+    /// concurrent timeout checks idempotent while reconnect shuts down.
+    pub fn take_global_state_timeout(&self, timeout: Duration) -> Option<Duration> {
+        let mut last_received = self.last_global_state_received.lock();
+        let age = last_received.as_ref()?.elapsed();
+        if age <= timeout {
+            return None;
+        }
+        last_received.take();
+        Some(age)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn global_state_age(&self) -> Option<Duration> {
+        self.last_global_state_received
+            .lock()
+            .as_ref()
+            .map(Instant::elapsed)
     }
 
     /// Send a message to the server
@@ -388,14 +455,123 @@ impl Connection {
     }
 }
 
+/// Build the transport-level half of a State response. The application sends
+/// its corrected local playstate separately, without repeating the ping exchange.
+///
+/// The server refreshes its watcher clock for every State, but only advances
+/// the stored position when playstate is present. Echo the authoritative
+/// server playstate so keepalives cannot freeze that clock. Strip doSeek to
+/// avoid repeating a forced action before the corrected local response.
+fn state_ping_acknowledgement(
+    message: &ProtocolMessage,
+    client_rtt: f64,
+) -> Option<ProtocolMessage> {
+    let ProtocolMessage::State { State } = message else {
+        return None;
+    };
+    let ping = State.ping.as_ref()?;
+    let server_ignore = State
+        .ignoring_on_the_fly
+        .as_ref()
+        .and_then(|ignoring| ignoring.server)
+        .filter(|server| *server != 0);
+    Some(ProtocolMessage::State {
+        State: StateMessage {
+            playstate: State.playstate.as_ref().map(|playstate| PlayState {
+                position: playstate.position,
+                paused: playstate.paused,
+                do_seek: None,
+                set_by: None,
+            }),
+            ping: Some(PingInfo {
+                latency_calculation: ping.latency_calculation,
+                client_latency_calculation: Some(PingService::new_timestamp()),
+                client_rtt: Some(client_rtt),
+                server_rtt: None,
+            }),
+            ignoring_on_the_fly: server_ignore.map(|server| IgnoringInfo {
+                server: Some(server),
+                client: None,
+            }),
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Connection, TerminalConnectionError};
     use crate::network::fake_server::tls_fixture::FakeTlsSyncplayServer;
     use crate::network::fake_server::FakeSyncplayServer;
-    use crate::network::messages::{HelloMessage, ProtocolMessage, RoomInfo};
+    use crate::network::messages::{
+        HelloMessage, IgnoringInfo, PingInfo, PlayState, ProtocolMessage, RoomInfo, StateMessage,
+    };
     use tokio::sync::mpsc;
     use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn state_pings_are_acknowledged_without_application_processing() {
+        let mut server = FakeSyncplayServer::start().await.unwrap();
+        let connection = Connection::new();
+        let (_receiver, _) = connection
+            .connect(server.host(), server.port())
+            .await
+            .unwrap();
+        connection.set_client_rtt(0.123);
+
+        for index in 0..3 {
+            let server_ignore = (index == 1).then_some(7);
+            server
+                .send(ProtocolMessage::State {
+                    State: StateMessage {
+                        playstate: Some(PlayState {
+                            position: index as f64,
+                            paused: true,
+                            do_seek: (index == 1).then_some(true),
+                            set_by: Some("server".to_string()),
+                        }),
+                        ping: Some(PingInfo {
+                            latency_calculation: Some(100.0 + index as f64),
+                            client_latency_calculation: None,
+                            client_rtt: None,
+                            server_rtt: None,
+                        }),
+                        ignoring_on_the_fly: server_ignore.map(|server| IgnoringInfo {
+                            server: Some(server),
+                            client: None,
+                        }),
+                    },
+                })
+                .unwrap();
+
+            let response = timeout(Duration::from_secs(2), server.next_received())
+                .await
+                .expect("transport heartbeat must not wait for the application receiver")
+                .unwrap();
+            let ProtocolMessage::State { State } = response else {
+                panic!("expected State heartbeat, got {response:?}");
+            };
+            let playstate = State
+                .playstate
+                .expect("heartbeat must preserve the server clock");
+            assert_eq!(playstate.position, index as f64);
+            assert!(playstate.paused);
+            assert_eq!(playstate.do_seek, None);
+            assert_eq!(playstate.set_by, None);
+            let ping = State.ping.unwrap();
+            assert_eq!(ping.latency_calculation, Some(100.0 + index as f64));
+            assert!(ping.client_latency_calculation.is_some());
+            assert_eq!(ping.client_rtt, Some(0.123));
+            assert_eq!(
+                State
+                    .ignoring_on_the_fly
+                    .and_then(|ignoring| ignoring.server),
+                server_ignore
+            );
+        }
+
+        connection.disconnect();
+        server.close();
+    }
 
     #[tokio::test]
     async fn tls_upgrade_timeout_aborts_worker_and_closes_receiver() {

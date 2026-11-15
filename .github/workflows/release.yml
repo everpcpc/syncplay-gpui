@@ -54,9 +54,6 @@ jobs:
     needs: version
     if: needs.version.outputs.skip != 'true'
     runs-on: ${{ matrix.os }}
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     strategy:
       fail-fast: false
       matrix:
@@ -84,8 +81,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.11
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
