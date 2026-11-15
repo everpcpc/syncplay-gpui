@@ -23,6 +23,11 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
+    - name: Use short target path (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: echo "CARGO_TARGET_DIR=D:\t" >> $env:GITHUB_ENV
+
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@stable
       with:

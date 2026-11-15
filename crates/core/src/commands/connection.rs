@@ -2826,10 +2826,7 @@ pub(crate) fn is_readiness_supported(state: &Arc<AppState>, requires_other_users
         .get_users_in_room(&room)
         .iter()
         .any(|user| user.username != username && user.is_ready_with_file().is_some());
-    if !others_support {
-        return false;
-    }
-    true
+    others_support
 }
 
 fn are_all_users_in_room_ready(state: &Arc<AppState>, require_same_filenames: bool) -> bool {
